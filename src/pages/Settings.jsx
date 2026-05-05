@@ -1,0 +1,137 @@
+import { useState, useEffect } from 'react';
+import { useOutletContext } from 'react-router-dom';
+import Header from '../components/Header';
+import { User, Bell, Shield, Palette, Save } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
+import { fetchMetadata } from '../services/api';
+
+export default function Settings() {
+  const { onMenuClick } = useOutletContext();
+  const [activeTab, setActiveTab] = useState('profile');
+  const { theme, setTheme } = useTheme();
+  const [contributors, setContributors] = useState([]);
+
+  useEffect(() => {
+    fetchMetadata().then(meta => {
+      setContributors(meta.authors || []);
+    }).catch(() => {});
+  }, []);
+
+  const tabs = [
+    { id: 'profile', label: 'Profile', icon: User },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'access', label: 'Access Control', icon: Shield },
+    { id: 'appearance', label: 'Appearance', icon: Palette },
+  ];
+
+  return (
+    <>
+      <Header title="Settings" subtitle="Manage your account and preferences" onMenuClick={onMenuClick} />
+      <div className="p-6 animate-fade-in">
+        <div className="flex flex-col md:flex-row gap-6">
+          {/* Tabs */}
+          <div className="md:w-60 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 p-2 h-fit shadow-sm">
+            {tabs.map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
+                  activeTab === tab.id ? 'bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-md shadow-primary-500/20' : 'text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700'
+                }`}>
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 p-7 shadow-sm">
+            {activeTab === 'profile' && (
+              <div className="space-y-5">
+                <h2 className="font-bold text-gray-900 dark:text-white text-lg">Profile Settings</h2>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Full Name</label>
+                    <input type="text" placeholder="Enter your name" className="w-full px-3 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Email</label>
+                    <input type="email" placeholder="your.email@company.com" className="w-full px-3 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Role</label>
+                    <select className="w-full px-3 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 outline-none">
+                      <option>Contributor</option>
+                      <option>Reviewer</option>
+                      <option>Admin</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Team</label>
+                    <input type="text" placeholder="Knowledge Factory" className="w-full px-3 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Bio</label>
+                  <textarea rows={3} placeholder="Describe your role and contributions..."
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none" />
+                </div>
+                <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-xl text-sm font-semibold hover:from-primary-600 hover:to-primary-700 transition-all shadow-lg shadow-primary-500/20 hover:scale-[1.02] active:scale-[0.98]">
+                  <Save className="w-4 h-4" /> Save Changes
+                </button>
+              </div>
+            )}
+
+            {activeTab === 'notifications' && (
+              <div className="space-y-5">
+                <h2 className="font-bold text-gray-900 dark:text-white text-lg">Notification Preferences</h2>
+                {[
+                  'New asset submissions for review',
+                  'Asset approval/rejection updates',
+                  'Comments on your assets',
+                  'Weekly digest of popular assets',
+                  'New team member contributions',
+                ].map((item, i) => (
+                  <label key={i} className="flex items-center justify-between py-2">
+                    <span className="text-sm text-gray-700 dark:text-slate-300">{item}</span>
+                    <input type="checkbox" defaultChecked={i < 3}
+                      className="w-4 h-4 text-primary-600 rounded border-gray-300 dark:border-slate-600 focus:ring-primary-500" />
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {activeTab === 'access' && (
+              <div className="space-y-5">
+                <h2 className="font-bold text-gray-900 dark:text-white text-lg">Access Control</h2>
+                <p className="text-sm text-gray-600 dark:text-slate-400">Manage role-based permissions for Knowledge Factory.</p>
+                <div className="space-y-3">
+                  {['Contributors can submit assets', 'Reviewers can approve/reject', 'Admins have full access', 'Consumers can browse/download'].map((rule, i) => (
+                    <div key={i} className="flex items-center gap-3 p-4 bg-gray-50 dark:bg-slate-700/50 rounded-xl border border-gray-100 dark:border-slate-600">
+                      <Shield className="w-4 h-4 text-primary-600" />
+                      <span className="text-sm text-gray-700 dark:text-slate-300">{rule}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'appearance' && (
+              <div className="space-y-5">
+                <h2 className="font-bold text-gray-900 dark:text-white text-lg">Appearance</h2>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Theme</label>
+                  <div className="flex gap-3">
+                    {['light', 'dark', 'system'].map(t => (
+                      <button key={t} onClick={() => setTheme(t)} className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors capitalize ${
+                        theme === t ? 'border-primary-300 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700'
+                      }`}>{t}</button>
+                    ))}
+                  </div>
+                </div> 
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
