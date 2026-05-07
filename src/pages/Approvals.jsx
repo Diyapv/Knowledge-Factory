@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import Header from '../components/Header';
 import ReusabilityBadge from '../components/ReusabilityBadge';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, getReviewersForCategory } from '../context/AuthContext';
 import { fetchAssets, updateAssetStatus, deleteAsset } from '../services/api';
 import {
   ClipboardCheck, CheckCircle2, XCircle, Clock, User,
@@ -19,7 +19,7 @@ const statusTabs = [
 
 export default function Approvals() {
   const { onMenuClick } = useOutletContext();
-  const { user, isApprover, isAdmin } = useAuth();
+  const { user, isApprover, isAdmin, isReviewer } = useAuth();
   const [activeTab, setActiveTab] = useState('Under Review');
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -42,7 +42,17 @@ export default function Approvals() {
     fetchAssets({ status: activeTab })
       .then(data => {
         let filtered = data;
-        if (!isApprover) {
+        if (isAdmin) {
+          // Admin sees ALL assets across all categories and statuses
+          filtered = data;
+        } else if (isReviewer) {
+          // Reviewer sees ONLY assets assigned to them (by category)
+          filtered = data.filter(a => {
+            const reviewers = getReviewersForCategory(a.category);
+            return reviewers.includes(user.username);
+          });
+        } else {
+          // Contributor sees only their own submissions
           filtered = data.filter(a => a.author === user.name || a.submittedBy === user.username);
         }
         setAssets(filtered);
@@ -56,9 +66,10 @@ export default function Approvals() {
   const handleApprove = async (id) => {
     setActionLoading(id);
     try {
-      await updateAssetStatus(id, 'Approved');
+      await updateAssetStatus(id, 'Approved', { reviewedBy: user.name });
       setAssets(prev => prev.filter(a => a.id !== id));
       if (previewAsset?.id === id) setPreviewAsset(null);
+      window.dispatchEvent(new Event('assets-updated'));
     } catch {} finally { setActionLoading(null); }
   };
 
@@ -74,9 +85,11 @@ export default function Approvals() {
       await updateAssetStatus(rejectingId, 'Rejected', {
         rejectionComment: rejectComment.trim() || undefined,
         rejectedBy: user.name,
+        reviewedBy: user.name,
       });
       setAssets(prev => prev.filter(a => a.id !== rejectingId));
       if (previewAsset?.id === rejectingId) setPreviewAsset(null);
+      window.dispatchEvent(new Event('assets-updated'));
     } catch {} finally {
       setActionLoading(null);
       setRejectingId(null);
@@ -91,6 +104,7 @@ export default function Approvals() {
       await deleteAsset(deletingId);
       setAssets(prev => prev.filter(a => a.id !== deletingId));
       if (previewAsset?.id === deletingId) setPreviewAsset(null);
+      window.dispatchEvent(new Event('assets-updated'));
     } catch (err) {
       console.error('Delete failed:', err);
       alert('Failed to delete asset. Please try again.');
@@ -122,11 +136,11 @@ export default function Approvals() {
     return `${Math.floor(hrs / 24)}d ago`;
   };
 
-  const canApproveReject = isApprover;
+  const canApproveReject = isApprover || isAdmin;
 
   return (
     <>
-      <Header title="Approvals" subtitle={isApprover ? 'Review and approve submissions' : 'Track your submitted assets'} onMenuClick={onMenuClick} />
+      <Header title="Approvals" subtitle={isAdmin ? 'Full control — all assets & decisions' : isReviewer ? 'Review assigned assets' : 'Track your submitted assets'} onMenuClick={onMenuClick} />
 
       <div className="p-4 md:p-6 space-y-6 animate-fade-in">
         {/* Tab bar */}
@@ -224,21 +238,21 @@ export default function Approvals() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          {canApproveReject && activeTab === 'Under Review' && (
+                          {canApproveReject && (activeTab === 'Under Review' || isAdmin) && (
                             <>
                               <button
                                 onClick={() => handleApprove(asset.id)}
                                 disabled={actionLoading === asset.id}
                                 className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-sm font-semibold rounded-xl hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50 shadow-md shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98]"
                               >
-                                {actionLoading === asset.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4 inline mr-1" />Approve</>}
+                                {actionLoading === asset.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4 inline mr-1" />{activeTab === 'Rejected' ? 'Override → Approve' : 'Approve'}</>}
                               </button>
                               <button
                                 onClick={() => openRejectModal(asset.id)}
                                 disabled={actionLoading === asset.id}
                                 className="px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm font-semibold rounded-xl hover:bg-red-100 dark:hover:bg-red-900/40 transition-all disabled:opacity-50 hover:scale-[1.02] active:scale-[0.98]"
                               >
-                                <XCircle className="w-4 h-4 inline mr-1" />Reject
+                                <XCircle className="w-4 h-4 inline mr-1" />{activeTab === 'Approved' ? 'Override → Reject' : 'Reject'}
                               </button>
                             </>
                           )}
@@ -313,21 +327,21 @@ export default function Approvals() {
                 </div>
 
                 {/* Preview action bar for approvers */}
-                {canApproveReject && activeTab === 'Under Review' && (
+                {canApproveReject && (activeTab === 'Under Review' || isAdmin) && (
                   <div className="px-5 py-4 border-t border-gray-100 dark:border-slate-700 flex items-center gap-3 bg-gray-50/50 dark:bg-slate-800/50">
                     <button
                       onClick={() => handleApprove(previewAsset.id)}
                       disabled={actionLoading === previewAsset.id}
                       className="flex-1 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-sm font-semibold rounded-xl hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50 shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99]"
                     >
-                      {actionLoading === previewAsset.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4" /> Approve</>}
+                      {actionLoading === previewAsset.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4" /> {activeTab === 'Rejected' ? 'Override → Approve' : 'Approve'}</>}
                     </button>
                     <button
                       onClick={() => openRejectModal(previewAsset.id)}
                       disabled={actionLoading === previewAsset.id}
                       className="flex-1 py-2.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm font-semibold rounded-xl hover:bg-red-100 dark:hover:bg-red-900/40 transition-all disabled:opacity-50 flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99]"
                     >
-                      <XCircle className="w-4 h-4" /> Reject
+                      <XCircle className="w-4 h-4" /> {activeTab === 'Approved' ? 'Override → Reject' : 'Reject'}
                     </button>
                   </div>
                 )}

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useOutletContext, Link } from 'react-router-dom';
 import Header from '../components/Header';
 import { fetchActivityLog } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import {
   Activity, Upload, CheckCircle2, XCircle, Trash2, Download,
   MessageSquare, Star, Heart, Clock, Loader2, Filter, User
@@ -33,16 +34,28 @@ function timeAgo(ts) {
 
 export default function ActivityLog() {
   const { onMenuClick } = useOutletContext();
+  const { user } = useAuth();
   const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
 
   useEffect(() => {
     fetchActivityLog(100)
-      .then(data => setActivities(Array.isArray(data) ? data : []))
+      .then(data => {
+        const all = Array.isArray(data) ? data : [];
+        // Admin sees everything; members and reviewers see only their own activity
+        if (user?.role === 'admin') {
+          setActivities(all);
+        } else {
+          const myActivities = all.filter(a =>
+            a.user === user?.name || a.user === user?.username
+          );
+          setActivities(myActivities);
+        }
+      })
       .catch(() => setActivities([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [user]);
 
   const filters = ['all', 'upload', 'approve', 'reject', 'comment', 'rate', 'favorite', 'delete'];
   const filtered = filter === 'all' ? activities : activities.filter(a => a.action === filter);

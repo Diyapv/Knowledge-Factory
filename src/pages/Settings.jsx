@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import Header from '../components/Header';
-import { User, Bell, Shield, Palette, Save } from 'lucide-react';
+import { User, Bell, Shield, Palette, Save, Plus, X, Star } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { fetchMetadata } from '../services/api';
 
@@ -10,6 +10,9 @@ export default function Settings() {
   const [activeTab, setActiveTab] = useState('profile');
   const { theme, setTheme } = useTheme();
   const [contributors, setContributors] = useState([]);
+  const [skills, setSkills] = useState([]);
+  const [newSkill, setNewSkill] = useState('');
+  const [newRating, setNewRating] = useState(3);
 
   useEffect(() => {
     fetchMetadata().then(meta => {
@@ -74,6 +77,61 @@ export default function Settings() {
                   <textarea rows={3} placeholder="Describe your role and contributions..."
                     className="w-full px-3 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none" />
                 </div>
+
+                {/* Skills & Ratings */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Skills & Ratings</label>
+                  {skills.length > 0 && (
+                    <div className="space-y-2 mb-3">
+                      {skills.map((skill, idx) => (
+                        <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-slate-700/50 rounded-xl border border-gray-100 dark:border-slate-600">
+                          <span className="flex-1 text-sm font-medium text-gray-800 dark:text-slate-200">{skill.name}</span>
+                          <div className="flex items-center gap-0.5">
+                            {[1, 2, 3, 4, 5].map(star => (
+                              <Star key={star} className={`w-4 h-4 ${star <= skill.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-300 dark:text-slate-600'}`} />
+                            ))}
+                          </div>
+                          <span className="text-xs font-bold text-gray-500 dark:text-slate-400 w-6 text-center">{skill.rating}/5</span>
+                          <button onClick={() => setSkills(prev => prev.filter((_, i) => i !== idx))}
+                            className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <select value={newSkill} onChange={e => setNewSkill(e.target.value)}
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 outline-none">
+                      <option value="">Select Skill</option>
+                      <optgroup label="Languages">
+                        {['JavaScript', 'TypeScript', 'Python', 'Java', 'Go', 'Rust', 'C', 'C++', 'C#', 'Ruby', 'PHP', 'Kotlin', 'Swift', 'Dart', 'Scala', 'Perl', 'R', 'MATLAB', 'Lua', 'Haskell', 'Elixir', 'Shell/Bash', 'PowerShell', 'SQL'].map(lang => (
+                          <option key={lang} value={lang}>{lang}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Frameworks">
+                        {['React', 'Angular', 'Vue.js', 'Next.js', 'Svelte', 'Node.js', 'Express.js', 'Spring Boot', 'Django', 'Flask', 'FastAPI', '.NET', 'Ruby on Rails', 'Laravel', 'Terraform', 'Docker', 'Kubernetes', 'AUTOSAR'].map(fw => (
+                          <option key={fw} value={fw}>{fw}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <select value={newRating} onChange={e => setNewRating(Number(e.target.value))}
+                      className="px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 outline-none">
+                      {[1, 2, 3, 4, 5].map(r => <option key={r} value={r}>{r} ★</option>)}
+                    </select>
+                    <button onClick={() => {
+                      if (newSkill.trim() && !skills.some(s => s.name === newSkill)) {
+                        setSkills(prev => [...prev, { name: newSkill.trim(), rating: newRating }]);
+                        setNewSkill('');
+                        setNewRating(3);
+                      }
+                    }}
+                      className="p-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors">
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
                 <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-xl text-sm font-semibold hover:from-primary-600 hover:to-primary-700 transition-all shadow-lg shadow-primary-500/20 hover:scale-[1.02] active:scale-[0.98]">
                   <Save className="w-4 h-4" /> Save Changes
                 </button>

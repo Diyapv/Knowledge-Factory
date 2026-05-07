@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import Header from '../components/Header';
 import { Link, useOutletContext } from 'react-router-dom';
-import { checkAIStatus, fetchStats } from '../services/api';
+import { checkAIStatus, fetchStats, fetchActivityLog, fetchAssets } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import ReusabilityBadge from '../components/ReusabilityBadge';
 import {
   Code2, FileText, FolderOpen, Upload, TrendingUp,
@@ -24,12 +25,26 @@ const categoryColors = [
 
 export default function Dashboard() {
   const { onMenuClick } = useOutletContext();
+  const { isReviewer, isAdmin, user } = useAuth();
   const [aiStatus, setAiStatus] = useState(null);
   const [stats, setStats] = useState(null);
+  const [activityLog, setActivityLog] = useState([]);
+  const [draftCount, setDraftCount] = useState(0);
 
   useEffect(() => {
     checkAIStatus().then(setAiStatus).catch(() => setAiStatus({ connected: false }));
     fetchStats().then(setStats).catch(() => {});
+    if (isAdmin) {
+      fetchActivityLog(20).then(data => setActivityLog(Array.isArray(data) ? data : [])).catch(() => {});
+    }
+    // Fetch user's own drafts count
+    Promise.all([
+      fetchAssets({ status: 'Draft' }),
+      fetchAssets({ status: 'Rejected' }),
+    ]).then(([drafts, rejected]) => {
+      const isOwner = a => a.author === user?.name || a.submittedBy === user?.username || a.submittedBy === user?.name;
+      setDraftCount(drafts.filter(isOwner).length + rejected.filter(isOwner).length);
+    }).catch(() => setDraftCount(0));
   }, []);
 
   const statCards = stats ? [
@@ -49,7 +64,6 @@ export default function Dashboard() {
 
   const recentAssets = stats?.recentAssets || [];
   const pendingCount = stats?.byStatus?.['Under Review'] || 0;
-  const draftCount = stats?.byStatus?.['Draft'] || 0;
 
   return (
     <>
@@ -103,8 +117,8 @@ export default function Dashboard() {
           <span className={`w-2.5 h-2.5 rounded-full ${aiStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
         </div>
 
-        {/* Pending Review Alert */}
-        {pendingCount > 0 && (
+        {/* Pending Review Alert — only for reviewers/admins */}
+        {isReviewer && pendingCount > 0 && (
           <Link to="/review" className="flex items-center gap-3 px-4 py-3 rounded-xl border bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors group">
             <ClipboardCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
             <div className="flex-1">
@@ -248,20 +262,53 @@ export default function Dashboard() {
                 <Activity className="w-4 h-4 text-primary-500" /> Activity
               </h2>
               <div className="space-y-3">
-                {recentAssets.slice(0, 4).map((a, i) => (
-                  <div key={i} className="flex items-start gap-3">
-                    <div className="w-2 h-2 rounded-full mt-1.5 shrink-0 bg-primary-500" />
-                    <div>
-                      <p className="text-xs text-gray-700 dark:text-slate-300">
-                        <span className="font-medium">{a.author}</span>{' '}
-                        uploaded{' '}
-                        <span className="font-medium text-gray-900 dark:text-white">{a.name}</span>
-                      </p>
-                      <p className="text-[11px] text-gray-400 dark:text-slate-500">{a.type} • {a.lang}</p>
+                {isAdmin && activityLog.length > 0 ? (
+                  activityLog.slice(0, 8).map((act, i) => {
+                    const actionLabel = act.action === 'upload' ? 'uploaded' : act.action === 'approve' ? 'approved' : act.action === 'reject' ? 'rejected' : act.action === 'comment' ? 'commented on' : act.action === 'rate' ? 'rated' : act.action === 'favorite' ? 'favorited' : act.action === 'delete' ? 'deleted' : 'updated';
+                    const dotColor = act.action === 'approve' ? 'bg-emerald-500' : act.action === 'reject' ? 'bg-red-500' : act.action === 'upload' ? 'bg-blue-500' : 'bg-primary-500';
+                    const timeAgoStr = act.timestamp ? (() => {
+                      const diff = Date.now() - new Date(act.timestamp).getTime();
+                      const mins = Math.floor(diff / 60000);
+                      if (mins < 60) return `${mins}m ago`;
+                      const hrs = Math.floor(mins / 60);
+                      if (hrs < 24) return `${hrs}h ago`;
+                      return `${Math.floor(hrs / 24)}d ago`;
+                    })() : '';
+                    return (
+                      <div key={i} className="flex items-start gap-3">
+                        <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${dotColor}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-gray-700 dark:text-slate-300">
+                            <span className="font-medium">{act.user || 'Unknown'}</span>{' '}
+                            {actionLabel}{' '}
+                            <span className="font-medium text-gray-900 dark:text-white">{act.assetName || ''}</span>
+                          </p>
+                          <p className="text-[11px] text-gray-400 dark:text-slate-500">{timeAgoStr}</p>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  recentAssets.slice(0, 4).map((a, i) => (
+                    <div key={i} className="flex items-start gap-3">
+                      <div className="w-2 h-2 rounded-full mt-1.5 shrink-0 bg-primary-500" />
+                      <div>
+                        <p className="text-xs text-gray-700 dark:text-slate-300">
+                          <span className="font-medium">{a.author}</span>{' '}
+                          uploaded{' '}
+                          <span className="font-medium text-gray-900 dark:text-white">{a.name}</span>
+                        </p>
+                        <p className="text-[11px] text-gray-400 dark:text-slate-500">{a.type} • {a.lang}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
+              {isAdmin && (
+                <Link to="/activity" className="block mt-3 text-xs text-primary-600 hover:text-primary-700 font-semibold text-center">
+                  View Full Activity Log →
+                </Link>
+              )}
             </div>
 
             {/* Top Categories */}

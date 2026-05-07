@@ -6,7 +6,7 @@ import {
   ChevronsLeft, ChevronsRight, HelpCircle, ClipboardCheck, FileEdit,
   LogOut, ShieldCheck, UserCheck, UserPen, Heart, Activity, BookOpen, Car
 } from 'lucide-react';
-import { fetchStats } from '../services/api';
+import { fetchStats, fetchAssets } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const getNavSections = (role) => {
@@ -17,12 +17,14 @@ const getNavSections = (role) => {
     { to: '/approvals', icon: ClipboardCheck, label: 'Approvals' },
   ];
 
-  // Admin gets full Review Queue
+  // Admin gets full Review Queue via Approvals page
   if (role === 'admin') {
-    main.push({ to: '/review', icon: ShieldCheck, label: 'Review Queue' });
+    // No separate Review Queue needed - Approvals handles it
   }
 
-  main.push({ to: '/drafts', icon: FileEdit, label: 'Drafts' });
+  if (role !== 'admin') {
+    main.push({ to: '/drafts', icon: FileEdit, label: 'Drafts' });
+  }
 
   return [
     { title: 'Main', items: main },
@@ -40,7 +42,7 @@ const getNavSections = (role) => {
       items: [
         { to: '/analytics', icon: BarChart3, label: 'Analytics' },
         { to: '/activity', icon: Activity, label: 'Activity Log' },
-        { to: '/knowledge', icon: BookOpen, label: 'EB Knowledge Base' },
+        ...(role === 'admin' ? [{ to: '/knowledge', icon: BookOpen, label: 'EB Knowledge Base' }] : []),
       ],
     },
   ];
@@ -56,11 +58,25 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const roleLabel = user?.role === 'admin' ? 'Admin' : isApprover ? 'Approver' : 'Member';
   const roleColor = user?.role === 'admin' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400' : isApprover ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400';
 
-  useEffect(() => {
+  const refreshCounts = () => {
     fetchStats().then(stats => {
       setPendingCount(stats?.byStatus?.['Under Review'] || 0);
-      setDraftCount(stats?.byStatus?.['Draft'] || 0);
     }).catch(() => {});
+    // Draft count: only count drafts/rejected belonging to current user
+    Promise.all([
+      fetchAssets({ status: 'Draft' }),
+      fetchAssets({ status: 'Rejected' }),
+    ]).then(([drafts, rejected]) => {
+      const isOwner = a => a.author === user?.name || a.submittedBy === user?.username || a.submittedBy === user?.name;
+      setDraftCount(drafts.filter(isOwner).length + rejected.filter(isOwner).length);
+    }).catch(() => setDraftCount(0));
+  };
+
+  useEffect(() => {
+    refreshCounts();
+    const handler = () => refreshCounts();
+    window.addEventListener('assets-updated', handler);
+    return () => window.removeEventListener('assets-updated', handler);
   }, []);
 
   const navContent = (

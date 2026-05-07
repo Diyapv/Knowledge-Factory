@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const { analyzeReusability, aiSuggestImprovements, detectDuplicate, generateTags, explainCode, ebChat, ebChatStream, checkMISRACompliance } = require('./services/ai');
 const {
   ensureCollection, upsertAsset, searchAssets,
@@ -16,9 +18,20 @@ const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
 const { extractText, isSupportedFile, MAX_FILE_SIZE } = require('./services/fileParser');
 
-// Multer config: store in memory (no disk writes), limit 10MB
+// Ensure uploads directory exists
+const UPLOADS_DIR = path.join(__dirname, '..', 'snapshots', 'tmp', 'upload');
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+// Multer config: store files on disk for PDF preview, limit 10MB
+const diskStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    cb(null, uniqueName);
+  },
+});
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: diskStorage,
   limits: { fileSize: MAX_FILE_SIZE },
   fileFilter: (req, file, cb) => {
     if (isSupportedFile(file.originalname)) {
@@ -168,6 +181,31 @@ app.post('/api/assets', async (req, res) => {
   }
 });
 
+// ── File upload endpoint (extracts text server-side for PDFs and binary files) ──
+app.post('/api/assets/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const text = await extractText(fileBuffer, req.file.originalname);
+    const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {};
+    const id = Date.now().toString();
+    const asset = {
+      id,
+      ...metadata,
+      code: text,
+      originalFileName: req.file.originalname,
+      storedFileName: req.file.filename,
+      createdAt: new Date().toISOString(),
+    };
+    await upsertAsset(asset);
+    await logActivity({ action: 'upload', assetId: id, assetName: asset.name || req.file.originalname, user: asset.submittedBy || asset.author || '', details: `Uploaded ${asset.type || 'File'}: ${asset.name || req.file.originalname}` });
+    res.status(201).json(asset);
+  } catch (err) {
+    console.error('File upload error:', err.message);
+    res.status(500).json({ error: 'Failed to upload file', details: err.message });
+  }
+});
+
 app.get('/api/assets', async (req, res) => {
   try {
     const { type, category, level, status } = req.query;
@@ -187,6 +225,29 @@ app.get('/api/assets/:id', async (req, res) => {
   } catch (err) {
     console.error('Get error:', err.message);
     res.status(500).json({ error: 'Failed to get asset', details: err.message });
+  }
+});
+
+// ── Serve original uploaded file (PDF preview, download) ──
+app.get('/api/assets/:id/file', async (req, res) => {
+  try {
+    const asset = await getAssetById(req.params.id);
+    if (!asset) return res.status(404).json({ error: 'Not found' });
+    if (!asset.storedFileName) return res.status(404).json({ error: 'No file stored for this asset' });
+
+    const filePath = path.join(UPLOADS_DIR, asset.storedFileName);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' });
+
+    const ext = path.extname(asset.originalFileName || '').toLowerCase();
+    const mimeTypes = { '.pdf': 'application/pdf', '.txt': 'text/plain', '.js': 'text/javascript', '.py': 'text/x-python', '.ts': 'text/typescript', '.json': 'application/json' };
+    const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${asset.originalFileName}"`);
+    fs.createReadStream(filePath).pipe(res);
+  } catch (err) {
+    console.error('File serve error:', err.message);
+    res.status(500).json({ error: 'Failed to serve file', details: err.message });
   }
 });
 
@@ -702,27 +763,7 @@ app.post('/api/infohub/sync-space', async (req, res) => {
 
 // ── Seed data ───────────────────────────────────────────
 async function seedData() {
-  const existing = await getAllAssets();
-  if (existing.length > 0) {
-    console.log(`Database already has ${existing.length} assets, skipping seed`);
-    return;
-  }
-
-  console.log('Seeding initial assets into Qdrant...');
-  const seeds = [
-    { id: '12', name: 'GraphQL API Module', type: 'Code', lang: 'TypeScript', category: 'API Utils', author: 'Platform Team', stars: 10, downloads: 52, desc: 'Type-safe GraphQL schema with resolvers, dataloaders, auth directives, and testing utilities.', code: "import { makeExecutableSchema } from '@graphql-tools/schema';\nimport { typeDefs } from './schema';\nimport { resolvers } from './resolvers';\n\nexport const schema = makeExecutableSchema({ typeDefs, resolvers });", tags: ['graphql', 'typescript', 'apollo', 'schema'], reusabilityLevel: 2, score: 74, status: 'Approved', version: '1.0.0' },
-  ];
-
-  for (const seed of seeds) {
-    seed.createdAt = new Date(Date.now() - Math.random() * 30 * 86400000).toISOString();
-    try {
-      await upsertAsset(seed);
-      console.log(`  Seeded: ${seed.name}`);
-    } catch (err) {
-      console.error(`  Failed to seed ${seed.name}:`, err.message);
-    }
-  }
-  console.log('Seeding complete!');
+  // No hardcoded seed data — all assets come from user uploads
 }
 
 // ── Start ───────────────────────────────────────────────

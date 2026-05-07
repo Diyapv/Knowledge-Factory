@@ -29,7 +29,7 @@ export default function CodeSnippets() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchAssets({ type: 'Code' })
+    fetchAssets({ type: 'Code', status: 'Approved' })
       .then(data => setSnippets(data))
       .catch(() => {})
       .finally(() => setLoading(false));

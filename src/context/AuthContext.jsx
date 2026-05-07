@@ -1,17 +1,17 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { getMsalInstance, loginRequest, graphConfig, isSSOConfigured } from '../config/msalConfig';
 
-// All users — everyone is a "member", some are also approvers
+// All users — roles: admin, reviewer, contributor
 const USERS = [
   { username: 'admin', password: 'admin123', role: 'admin', name: 'Admin', initials: 'AD' },
-  { username: 'abhijith', password: 'abhijith123', role: 'member', name: 'Abhijith', initials: 'AB' },
-  { username: 'diya', password: 'diya123', role: 'member', name: 'Diya', initials: 'DI' },
-  { username: 'hari', password: 'hari123', role: 'member', name: 'Hari', initials: 'HA' },
-  { username: 'niharika', password: 'niharika123', role: 'member', name: 'Niharika', initials: 'NI' },
-  { username: 'anjana', password: 'anjana123', role: 'member', name: 'Anjana', initials: 'AN' },
+  { username: 'abhijith', password: 'abhijith123', role: 'reviewer', name: 'Abhijith', initials: 'AB' },
+  { username: 'diya', password: 'diya123', role: 'contributor', name: 'Diya', initials: 'DI' },
+  { username: 'hari', password: 'hari123', role: 'reviewer', name: 'Hari', initials: 'HA' },
+  { username: 'niharika', password: 'niharika123', role: 'contributor', name: 'Niharika', initials: 'NI' },
+  { username: 'anjana', password: 'anjana123', role: 'contributor', name: 'Anjana', initials: 'AN' },
 ];
 
-// Approvers list — these members can approve/reject submissions
+// Approvers list — reviewers who can approve/reject submissions
 const APPROVERS = ['abhijith', 'hari'];
 
 // Approver assignments per category
@@ -23,6 +23,17 @@ export const REVIEWER_ASSIGNMENTS = {
   'Testing': ['abhijith'],
   'Database': ['hari'],
   'Frontend': ['abhijith'],
+  'Backend': ['hari'],
+  'Middleware': ['abhijith'],
+  'Data Processing': ['hari'],
+  'EB Products': ['abhijith', 'hari'],
+  'EB tresos': ['abhijith'],
+  'EB corbos': ['hari'],
+  'EB GUIDE': ['abhijith'],
+  'AUTOSAR': ['hari'],
+  'Architecture': ['abhijith', 'hari'],
+  'Standards & Compliance': ['abhijith', 'hari'],
+  'CI/CD & DevOps': ['hari'],
   'Other': ['abhijith', 'hari'],
 };
 
@@ -193,12 +204,13 @@ export function AuthProvider({ children }) {
   }, [user, ssoEnabled]);
 
   const isAdmin = user?.role === 'admin';
+  const isReviewer = user?.role === 'reviewer' || isAdmin;
   const isApprover = isAdmin || APPROVERS.includes(user?.username);
 
   return (
     <AuthContext.Provider value={{
       user, login, loginWithSSO, logout,
-      isAdmin, isApprover,
+      isAdmin, isReviewer, isApprover,
       ssoEnabled, ssoLoading, ssoError,
     }}>
       {children}

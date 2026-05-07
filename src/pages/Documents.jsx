@@ -15,7 +15,7 @@ export default function Documents() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchAssets({ type: 'Document' })
+    fetchAssets({ type: 'Document', status: 'Approved' })
       .then(data => setDocs(data))
       .catch(() => {})
       .finally(() => setLoading(false));

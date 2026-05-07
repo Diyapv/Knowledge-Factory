@@ -113,6 +113,10 @@ async function upsertAsset(asset) {
         favoritedBy: asset.favoritedBy || [],
         ratings: asset.ratings || {},
         ratingCount: asset.ratingCount || 0,
+        originalFileName: asset.originalFileName || '',
+        rejectionComment: asset.rejectionComment || '',
+        rejectedBy: asset.rejectedBy || '',
+        reviewedBy: asset.reviewedBy || '',
       },
     }],
   });
@@ -212,7 +216,7 @@ async function updateAsset(id, updates) {
 
 async function getStats() {
   const all = await getAllAssets();
-  const total = all.length;
+  const approved = all.filter(a => a.status === 'Approved');
   const byType = { Code: 0, Document: 0 };
   const byLevel = { 1: 0, 2: 0, 3: 0, 4: 0 };
   const byStatus = { Approved: 0, 'Under Review': 0, Rejected: 0, Draft: 0 };
@@ -221,10 +225,15 @@ async function getStats() {
   let totalStars = 0;
   let totalDownloads = 0;
 
+  // byStatus counts all assets (for pending/draft alerts)
   for (const a of all) {
+    if (a.status && byStatus[a.status] !== undefined) byStatus[a.status]++;
+  }
+
+  // All other stats only count approved assets
+  for (const a of approved) {
     if (byType[a.type] !== undefined) byType[a.type]++;
     if (a.reusabilityLevel) byLevel[a.reusabilityLevel]++;
-    if (a.status && byStatus[a.status] !== undefined) byStatus[a.status]++;
     if (a.category) byCategory[a.category] = (byCategory[a.category] || 0) + 1;
     if (a.author) authors.add(a.author);
     totalStars += a.stars || 0;
@@ -232,7 +241,7 @@ async function getStats() {
   }
 
   return {
-    total,
+    total: approved.length,
     byType,
     byLevel,
     byStatus,
@@ -240,7 +249,7 @@ async function getStats() {
     contributors: authors.size,
     totalStars,
     totalDownloads,
-    recentAssets: all.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).slice(0, 5),
+    recentAssets: approved.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).slice(0, 5),
   };
 }
 

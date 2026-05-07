@@ -11,7 +11,9 @@ export async function fetchAssets({ type, category, level, status } = {}) {
 }
 
 export async function deleteAsset(id) {
-  const res = await fetch(`${API_URL}/assets/${id}`, { method: 'DELETE' });
+  const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
+  const username = currentUser.name || currentUser.username || '';
+  const res = await fetch(`${API_URL}/assets/${id}?user=${encodeURIComponent(username)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete asset');
   return res.json();
 }
@@ -23,6 +25,16 @@ export async function updateAssetStatus(id, status, extra = {}) {
     body: JSON.stringify({ status, ...extra }),
   });
   if (!res.ok) throw new Error('Failed to update status');
+  return res.json();
+}
+
+export async function updateAssetContent(id, fields) {
+  const res = await fetch(`${API_URL}/assets/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) throw new Error('Failed to update asset');
   return res.json();
 }
 
@@ -39,6 +51,18 @@ export async function submitAsset(asset) {
     body: JSON.stringify(asset),
   });
   if (!res.ok) throw new Error('Failed to submit asset');
+  return res.json();
+}
+
+export async function submitAssetWithFile(file, metadata) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('metadata', JSON.stringify(metadata));
+  const res = await fetch(`${API_URL}/assets/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) throw new Error('Failed to upload asset');
   return res.json();
 }
 

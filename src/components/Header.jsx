@@ -51,7 +51,7 @@ export default function Header({ title, subtitle, onMenuClick }) {
 
   return (
     <>
-      <header className="h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border-b border-gray-200/50 dark:border-slate-800/60 flex items-center justify-between px-4 md:px-6 sticky top-0 z-30 shadow-[0_1px_3px_rgba(0,0,0,0.04)] dark:shadow-none">
+      <header className="h-16 bg-white dark:bg-slate-900 border-b border-gray-200/50 dark:border-slate-800/60 flex items-center justify-between px-4 md:px-6 sticky top-0 z-30 shadow-[0_1px_3px_rgba(0,0,0,0.04)] dark:shadow-none">
         {/* Left: mobile menu + title */}
         <div className="flex items-center gap-3">
           <button onClick={onMenuClick} className="md:hidden p-2 -ml-2 text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors">

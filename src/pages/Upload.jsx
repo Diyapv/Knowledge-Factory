@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useOutletContext, Link } from 'react-router-dom';
+import { useOutletContext, Link, useLocation } from 'react-router-dom';
 import Header from '../components/Header';
 import AIAnalysisPanel from '../components/AIAnalysisPanel';
-import { analyzeReusability, submitAsset, fetchMetadata, findSimilarAssets } from '../services/api';
+import { analyzeReusability, submitAsset, submitAssetWithFile, updateAssetStatus, deleteAsset, fetchMetadata, findSimilarAssets } from '../services/api';
 import {
   Upload as UploadIcon, Code2, FileText,
   X, Plus, CheckCircle2, XCircle, AlertCircle, ArrowLeft, ArrowRight,
@@ -24,16 +24,38 @@ const steps = [
 
 export default function UploadPage() {
   const { onMenuClick } = useOutletContext();
-  const [currentStep, setCurrentStep] = useState(1);
-  const [selectedType, setSelectedType] = useState(null);
-  const [tags, setTags] = useState([]);
+  const location = useLocation();
+  const resubmitData = location.state;
+  const isResubmit = resubmitData?.resubmit === true;
+  const [currentStep, setCurrentStep] = useState(isResubmit ? 2 : 1);
+  const [selectedType, setSelectedType] = useState(isResubmit ? resubmitData.asset.type : null);
+  const [tags, setTags] = useState(isResubmit ? (resubmitData.asset.tags || []) : []);
   const [tagInput, setTagInput] = useState('');
   const [files, setFiles] = useState([]);
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(() => {
+    // Persist submission state across potential remounts
+    const saved = sessionStorage.getItem('kf_upload_submitted');
+    if (saved) return true;
+    return false;
+  });
+  const [submittedResult, setSubmittedResult] = useState(() => {
+    const saved = sessionStorage.getItem('kf_upload_submitted');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [submitting, setSubmitting] = useState(false);
-  const [formData, setFormData] = useState({ name: '', language: '', description: '', category: '', version: '', author: '' });
+  const [formData, setFormData] = useState(isResubmit ? {
+    name: resubmitData.asset.name || '',
+    language: resubmitData.asset.language || '',
+    description: resubmitData.asset.description || '',
+    category: resubmitData.asset.category || '',
+    version: resubmitData.asset.version || '',
+    author: resubmitData.asset.author || '',
+    project: resubmitData.asset.project || '',
+    ecuType: resubmitData.asset.ecuType || '',
+  } : { name: '', language: '', description: '', category: '', version: '', author: '' });
   const [dragOver, setDragOver] = useState(false);
-  const [codeContent, setCodeContent] = useState('');
+  const [codeContent, setCodeContent] = useState(isResubmit ? (resubmitData.asset.code || '') : '');
+  const [originalFileName, setOriginalFileName] = useState(isResubmit ? (resubmitData.asset.originalFileName || '') : '');
   const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
@@ -44,8 +66,15 @@ export default function UploadPage() {
 
   const codeLanguages = ['JavaScript', 'TypeScript', 'Python', 'Java', 'Go', 'Rust', 'C', 'C++', 'C#', 'Ruby', 'PHP', 'Kotlin', 'Swift', 'Dart', 'Scala', 'Perl', 'R', 'MATLAB', 'Lua', 'Haskell', 'Elixir', 'Shell/Bash', 'PowerShell', 'SQL', 'GraphQL', 'HTML/CSS', 'SASS/SCSS', 'React', 'Node.js', 'Angular', 'Vue.js', 'Next.js', 'Svelte', 'Spring Boot', 'Django', 'Flask', 'Express.js', 'FastAPI', '.NET', 'Ruby on Rails', 'Laravel', 'Terraform', 'Docker', 'Kubernetes', 'YAML', 'JSON', 'XML', 'Markdown', 'Other'];
   const codeCategories = ['Authentication', 'API Utils', 'Database', 'Security', 'DevOps', 'Testing', 'Frontend', 'Backend', 'Middleware', 'Data Processing', 'Logging', 'Caching', 'Messaging', 'File Handling', 'Other'];
-  const documentTypes = ['Design Document', 'API Specification', 'Architecture Decision Record', 'Runbook', 'Onboarding Guide', 'Best Practices', 'Style Guide', 'Troubleshooting Guide', 'Release Notes', 'Meeting Notes', 'RFC', 'Other'];
+  const documentTypes = ['Design Document', 'API Specification', 'Architecture Decision Record', 'Runbook', 'Onboarding Guide', 'Best Practices', 'Style Guide', 'Troubleshooting Guide', 'Release Notes', 'Meeting Notes', 'RFC', 'EB Products', 'EB tresos', 'EB corbos', 'EB GUIDE', 'EB Assist', 'EB cadian', 'EB zeneo', 'AUTOSAR', 'Project Setup', 'Testing', 'Architecture', 'Standards & Compliance', 'Team & Process', 'CI/CD & DevOps', 'Other'];
   const documentCategories = ['Architecture', 'API Documentation', 'Security', 'DevOps', 'Frontend', 'Backend', 'Infrastructure', 'Process', 'Standards', 'Onboarding', 'Other'];
+
+  useEffect(() => {
+    // Clear stale submission state when arriving fresh (e.g., via sidebar nav)
+    if (!submitted && sessionStorage.getItem('kf_upload_submitted')) {
+      sessionStorage.removeItem('kf_upload_submitted');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchMetadata().then(meta => {
@@ -68,14 +97,42 @@ export default function UploadPage() {
     setDragOver(false);
     const dropped = Array.from(e.dataTransfer.files);
     setFiles(prev => [...prev, ...dropped]);
+    // Read first file content into codeContent
+    if (dropped.length > 0) {
+      const file = dropped[0];
+      setOriginalFileName(file.name);
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setCodeContent(ev.target.result);
+      };
+      reader.readAsText(file);
+    }
   };
 
   const handleFileSelect = (e) => {
     const selected = Array.from(e.target.files);
     setFiles(prev => [...prev, ...selected]);
+    // Read first file content into codeContent
+    if (selected.length > 0) {
+      const file = selected[0];
+      setOriginalFileName(file.name);
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setCodeContent(ev.target.result);
+      };
+      reader.readAsText(file);
+    }
   };
 
-  const removeFile = (idx) => setFiles(files.filter((_, i) => i !== idx));
+  const removeFile = (idx) => {
+    const updated = files.filter((_, i) => i !== idx);
+    setFiles(updated);
+    // If all files removed, clear the file-sourced content
+    if (updated.length === 0) {
+      setOriginalFileName('');
+      setCodeContent('');
+    }
+  };
 
   const validationErrors = (() => {
     const errors = [];
@@ -83,8 +140,7 @@ export default function UploadPage() {
     if (!formData.description.trim()) errors.push('Description is required');
     if (formData.description.trim().length < 20) errors.push('Description must be at least 20 characters');
     if (selectedType === 'code' && !codeContent.trim() && files.length === 0) errors.push('Code content or file is required for code snippets');
-    if (!formData.language) errors.push('Language is required');
-    if (!formData.category) errors.push('Category is required');
+    if (!formData.category) errors.push(selectedType === 'code' ? 'Category is required' : 'Document Type is required');
     return errors;
   })();
 
@@ -147,14 +203,19 @@ export default function UploadPage() {
     try {
       const assetStatus = qualityGate.isDraft ? 'Draft' : 'Under Review';
       const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
-      await submitAsset({
+
+      // If resubmitting, delete the old draft first
+      if (isResubmit && resubmitData.assetId) {
+        await deleteAsset(resubmitData.assetId);
+      }
+
+      const metadata = {
         name: formData.name,
         type: selectedType === 'code' ? 'Code' : 'Document',
         lang: formData.language,
         category: formData.category,
         version: formData.version,
         desc: formData.description,
-        code: codeContent || '',
         tags,
         author: currentUser.name || formData.author || 'Anonymous',
         submittedBy: currentUser.username || '',
@@ -166,7 +227,22 @@ export default function UploadPage() {
         reusabilityLevel: aiAnalysis?.reusabilityLevel || null,
         score: aiAnalysis?.score || null,
         aiAnalysis: aiAnalysis || null,
-      });
+      };
+
+      // Use server-side file upload for binary files (PDFs etc.) that need extraction
+      const hasBinaryFile = files.length > 0 && files[0].name.match(/\.(pdf)$/i);
+      if (hasBinaryFile) {
+        await submitAssetWithFile(files[0], metadata);
+      } else {
+        await submitAsset({
+          ...metadata,
+          code: codeContent || '',
+          originalFileName: originalFileName || '',
+        });
+      }
+      const result = { wasDraft: qualityGate.isDraft, type: selectedType, isResubmit };
+      sessionStorage.setItem('kf_upload_submitted', JSON.stringify(result));
+      setSubmittedResult(result);
       setSubmitted(true);
     } catch (err) {
       console.error('Submit failed:', err);
@@ -175,8 +251,21 @@ export default function UploadPage() {
     }
   };
 
-  if (submitted) {
-    const wasDraft = qualityGate.isDraft;
+  if (submitted && submittedResult) {
+    const wasDraft = submittedResult.wasDraft;
+    const clearAndReset = () => {
+      sessionStorage.removeItem('kf_upload_submitted');
+      setSubmitted(false);
+      setSubmittedResult(null);
+      setSelectedType(null);
+      setTags([]);
+      setFiles([]);
+      setCurrentStep(1);
+      setFormData({ name: '', language: '', description: '', category: '', version: '' });
+      setCodeContent('');
+      setOriginalFileName('');
+      setAiAnalysis(null);
+    };
     return (
       <>
         <Header title="Contribute" subtitle="Submit reusable assets to the knowledge base" onMenuClick={onMenuClick} />
@@ -190,12 +279,12 @@ export default function UploadPage() {
                 : <CheckCircle2 className="w-10 h-10 text-emerald-600 dark:text-emerald-400" />}
             </div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-              {wasDraft ? 'Saved as Draft' : 'Submitted Successfully!'}
+              {wasDraft ? 'AI Score Below Required Threshold' : submittedResult.isResubmit ? 'Submitted for Review Successfully!' : 'Submitted Successfully!'}
             </h2>
             <p className="text-gray-600 dark:text-slate-300 mb-1">
               {wasDraft
-                ? <>Your <strong>{selectedType}</strong> didn&apos;t pass the reusability check and has been saved to <strong>Drafts</strong>.</>
-                : <>Your <strong>{selectedType}</strong> asset has been queued for review.</>}
+                ? <>Your <strong>{submittedResult.type}</strong> didn&apos;t pass the reusability check and has been saved to <strong>Drafts</strong> for improvement.</>
+                : <>Your <strong>{submittedResult.type}</strong> asset has been queued for review.</>}
             </p>
             <p className="text-sm text-gray-500 dark:text-slate-400 mb-8">
               {wasDraft
@@ -204,18 +293,20 @@ export default function UploadPage() {
             </p>
             <div className="flex items-center justify-center gap-3">
               {wasDraft ? (
-                <Link to="/drafts" className="px-5 py-2.5 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors">
+                <Link to="/drafts" onClick={() => sessionStorage.removeItem('kf_upload_submitted')} className="px-5 py-2.5 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors">
                   Go to Drafts
                 </Link>
               ) : (
-                <button onClick={() => { setSubmitted(false); setSelectedType(null); setTags([]); setFiles([]); setCurrentStep(1); setFormData({ name: '', language: '', description: '', category: '', version: '' }); setCodeContent(''); setAiAnalysis(null); }}
-                  className="px-5 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors">
-                  Submit Another
-                </button>
+                <>
+                  <button onClick={clearAndReset}
+                    className="px-5 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors">
+                    Contribute Another
+                  </button>
+                  <Link to="/" onClick={() => sessionStorage.removeItem('kf_upload_submitted')} className="px-5 py-2.5 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
+                    Go to Dashboard
+                  </Link>
+                </>
               )}
-              <Link to="/" className="px-5 py-2.5 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
-                Back to Dashboard
-              </Link>
             </div>
           </div>
         </div>
@@ -225,7 +316,7 @@ export default function UploadPage() {
 
   return (
     <>
-      <Header title="Contribute" subtitle="Submit reusable assets to the knowledge base" onMenuClick={onMenuClick} />
+      <Header title={isResubmit ? "Edit & Resubmit" : "Contribute"} subtitle={isResubmit ? "Update your submission and resubmit for review" : "Submit reusable assets to the knowledge base"} onMenuClick={onMenuClick} />
 
       <div className="p-4 md:p-6 max-w-4xl">
         {/* Step Indicator */}
@@ -292,7 +383,7 @@ export default function UploadPage() {
         {currentStep === 2 && (
           <div className="animate-fade-in bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 space-y-5">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Asset Details</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Asset Details ({selectedType === 'code' ? 'Code Snippet' : 'Document'})</h2>
               <p className="text-sm text-gray-500 dark:text-slate-400">Provide information so others can find and use your asset.</p>
             </div>
 
@@ -305,17 +396,17 @@ export default function UploadPage() {
               </div>
               {selectedType === 'code' ? (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Language / Framework <span className="text-red-400">*</span></label>
-                  <select value={formData.language} onChange={e => setFormData({ ...formData, language: e.target.value })}
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Category <span className="text-red-400">*</span></label>
+                  <select value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}
                     className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 transition-shadow">
-                    <option value="">Select language...</option>
-                    {(languages.length > 0 ? languages : codeLanguages).map(l => <option key={l} value={l}>{l}</option>)}
+                    <option value="">Select category...</option>
+                    {codeCategories.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               ) : (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Document Type <span className="text-red-400">*</span></label>
-                  <select value={formData.language} onChange={e => setFormData({ ...formData, language: e.target.value })}
+                  <select value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}
                     className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 transition-shadow">
                     <option value="">Select document type...</option>
                     {documentTypes.map(t => <option key={t} value={t}>{t}</option>)}
@@ -332,24 +423,6 @@ export default function UploadPage() {
               <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">{formData.description.length}/500 characters (min 20 for submission)</p>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Category <span className="text-red-400">*</span></label>
-                <select value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 transition-shadow">
-                  <option value="">Select category...</option>
-                  {(selectedType === 'code' ? codeCategories : documentCategories).map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Version</label>
-                <input type="text" value={formData.version} onChange={e => setFormData({ ...formData, version: e.target.value })}
-                  placeholder="e.g., 1.0.0"
-                  className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-shadow" />
-              </div>
-            </div>
-
-            {/* Automotive: Project & ECU Tagging */}
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Project / Customer <span className="text-xs text-gray-400 font-normal">(optional)</span></label>
@@ -372,24 +445,10 @@ export default function UploadPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">ECU Type <span className="text-xs text-gray-400 font-normal">(optional)</span></label>
-                <select value={formData.ecuType || ''} onChange={e => setFormData({ ...formData, ecuType: e.target.value })}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 transition-shadow">
-                  <option value="">Select ECU type...</option>
-                  <option value="HPC (High-Performance Computer)">HPC (High-Performance Computer)</option>
-                  <option value="Gateway ECU">Gateway ECU</option>
-                  <option value="Body Controller (BCM)">Body Controller (BCM)</option>
-                  <option value="ADAS / Autonomous Driving">ADAS / Autonomous Driving</option>
-                  <option value="Infotainment (IVI)">Infotainment (IVI)</option>
-                  <option value="Powertrain / Engine ECU">Powertrain / Engine ECU</option>
-                  <option value="Chassis Controller">Chassis Controller</option>
-                  <option value="Telematics (TCU)">Telematics (TCU)</option>
-                  <option value="Battery Management (BMS)">Battery Management (BMS)</option>
-                  <option value="OBD / Diagnostics">OBD / Diagnostics</option>
-                  <option value="Sensor Fusion">Sensor Fusion</option>
-                  <option value="Generic / Not Specific">Generic / Not Specific</option>
-                  <option value="Other">Other</option>
-                </select>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Version</label>
+                <input type="text" value={formData.version} onChange={e => setFormData({ ...formData, version: e.target.value })}
+                  placeholder="e.g., 1.0.0"
+                  className="w-full px-3.5 py-2.5 border border-gray-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-shadow" />
               </div>
             </div>
 
@@ -607,8 +666,7 @@ export default function UploadPage() {
                 <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2">Details</p>
                 <div className="space-y-1.5">
                   <p className="text-sm"><span className="text-gray-500 dark:text-slate-400">Name:</span> <span className="font-medium text-gray-900 dark:text-white">{formData.name || '—'}</span></p>
-                  <p className="text-sm"><span className="text-gray-500 dark:text-slate-400">Language:</span> <span className="text-gray-900 dark:text-white">{formData.language || '—'}</span></p>
-                  <p className="text-sm"><span className="text-gray-500 dark:text-slate-400">Category:</span> <span className="text-gray-900 dark:text-white">{formData.category || '—'}</span></p>
+                  <p className="text-sm"><span className="text-gray-500 dark:text-slate-400">{selectedType === 'code' ? 'Category:' : 'Document Type:'}</span> <span className="text-gray-900 dark:text-white">{formData.category || '—'}</span></p>
                   <p className="text-sm"><span className="text-gray-500 dark:text-slate-400">Version:</span> <span className="text-gray-900 dark:text-white">{formData.version || '—'}</span></p>
                   <p className="text-sm"><span className="text-gray-500 dark:text-slate-400">Description:</span> <span className="text-gray-900 dark:text-white">{formData.description || '—'}</span></p>
                 </div>
@@ -645,8 +703,7 @@ export default function UploadPage() {
                 {[
                   { ok: !!formData.name.trim(), label: 'Asset name provided' },
                   { ok: formData.description.trim().length >= 20, label: 'Description (20+ characters)' },
-                  { ok: !!formData.language, label: 'Language selected' },
-                  { ok: !!formData.category, label: 'Category selected' },
+                  { ok: !!formData.category, label: selectedType === 'code' ? 'Category selected' : 'Document type selected' },
                   { ok: tags.length > 0, label: 'At least one tag added' },
                   { ok: selectedType !== 'code' || codeContent.trim().length > 0 || files.length > 0, label: 'Code content or files attached' },
                   { ok: !!aiAnalysis, label: 'AI reusability analysis completed' },
