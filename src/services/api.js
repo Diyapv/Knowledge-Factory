@@ -393,3 +393,276 @@ export async function deleteResumeApi(id, username) {
   if (!res.ok) throw new Error('Failed to delete resume');
   return res.json();
 }
+
+// ── Open Feedback ─────────────────────────────────────────
+export async function fetchFeedback() {
+  const res = await fetch(`${API_URL}/feedback`);
+  if (!res.ok) throw new Error('Failed to fetch feedback');
+  return res.json();
+}
+
+export async function createFeedbackApi(username, displayName, { title, content, category }) {
+  const res = await fetch(`${API_URL}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, displayName, title, content, category }),
+  });
+  if (!res.ok) throw new Error('Failed to post feedback');
+  return res.json();
+}
+
+export async function addReplyApi(feedbackId, username, displayName, text) {
+  const res = await fetch(`${API_URL}/feedback/${feedbackId}/reply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, displayName, text }),
+  });
+  if (!res.ok) throw new Error('Failed to add reply');
+  return res.json();
+}
+
+export async function toggleFeedbackLikeApi(feedbackId, username) {
+  const res = await fetch(`${API_URL}/feedback/${feedbackId}/like`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+  if (!res.ok) throw new Error('Failed to toggle like');
+  return res.json();
+}
+
+export async function deleteFeedbackApi(id, username) {
+  const res = await fetch(`${API_URL}/feedback/${id}?username=${encodeURIComponent(username)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to delete feedback');
+  return res.json();
+}
+
+export async function deleteReplyApi(feedbackId, replyId, username) {
+  const res = await fetch(`${API_URL}/feedback/${feedbackId}/reply/${replyId}?username=${encodeURIComponent(username)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to delete reply');
+  return res.json();
+}
+
+// ── Daily Task Tracker ────────────────────────────────────
+export async function fetchDailyLog(username, date) {
+  const res = await fetch(`${API_URL}/tasks/daily?username=${encodeURIComponent(username)}&date=${date}`);
+  if (!res.ok) throw new Error('Failed to fetch daily log');
+  return res.json();
+}
+
+export async function saveDailyLogApi(username, date, data) {
+  const res = await fetch(`${API_URL}/tasks/daily`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, date, ...data }),
+  });
+  if (!res.ok) throw new Error('Failed to save daily log');
+  return res.json();
+}
+
+export async function fetchTaskHistory(username, limit = 30) {
+  const res = await fetch(`${API_URL}/tasks/history?username=${encodeURIComponent(username)}&limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch task history');
+  return res.json();
+}
+
+// ── Device Asset Management ───────────────────────────────
+export async function fetchDevices({ type, status, assignedTo } = {}) {
+  const params = new URLSearchParams();
+  if (type) params.set('type', type);
+  if (status) params.set('status', status);
+  if (assignedTo) params.set('assignedTo', assignedTo);
+  const res = await fetch(`${API_URL}/devices?${params}`);
+  if (!res.ok) throw new Error('Failed to fetch devices');
+  return res.json();
+}
+
+export async function addDeviceApi(data) {
+  const res = await fetch(`${API_URL}/devices`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to add device');
+  return res.json();
+}
+
+export async function updateDeviceApi(id, data) {
+  const res = await fetch(`${API_URL}/devices/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update device');
+  return res.json();
+}
+
+export async function deleteDeviceApi(id) {
+  const res = await fetch(`${API_URL}/devices/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete device');
+  return res.json();
+}
+
+// ── Recognition System ──────────────────────────────────
+export async function fetchRecognitions() {
+  const res = await fetch(`${API_URL}/recognitions`);
+  return res.json();
+}
+
+export async function createRecognitionApi(data) {
+  const res = await fetch(`${API_URL}/recognitions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create recognition');
+  return res.json();
+}
+
+export async function toggleRecognitionLikeApi(id, username) {
+  const res = await fetch(`${API_URL}/recognitions/${id}/like`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+  if (!res.ok) throw new Error('Failed to toggle like');
+  return res.json();
+}
+
+export async function deleteRecognitionApi(id) {
+  const res = await fetch(`${API_URL}/recognitions/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete recognition');
+  return res.json();
+}
+
+// ── Internal Job Board ──────────────────────────────────
+export async function fetchJobs() {
+  const res = await fetch(`${API_URL}/jobs`);
+  return res.json();
+}
+
+export async function createJobApi(data) {
+  const res = await fetch(`${API_URL}/jobs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create job');
+  return res.json();
+}
+
+export async function applyToJobApi(id, data) {
+  const res = await fetch(`${API_URL}/jobs/${id}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to apply');
+  }
+  return res.json();
+}
+
+export async function updateJobStatusApi(id, status) {
+  const res = await fetch(`${API_URL}/jobs/${id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error('Failed to update job status');
+  return res.json();
+}
+
+export async function updateApplicantStatusApi(id, username, status) {
+  const res = await fetch(`${API_URL}/jobs/${id}/applicant`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, status }),
+  });
+  if (!res.ok) throw new Error('Failed to update applicant status');
+  return res.json();
+}
+
+export async function deleteJobApi(id) {
+  const res = await fetch(`${API_URL}/jobs/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete job');
+  return res.json();
+}
+
+// ── Employee Directory ──────────────────────────────────
+export async function fetchEmployees() {
+  const res = await fetch(`${API_URL}/employees`);
+  return res.json();
+}
+
+export async function addEmployeeApi(data) {
+  const res = await fetch(`${API_URL}/employees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to add employee');
+  }
+  return res.json();
+}
+
+export async function updateEmployeeApi(id, data) {
+  const res = await fetch(`${API_URL}/employees/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update employee');
+  return res.json();
+}
+
+export async function deleteEmployeeApi(id) {
+  const res = await fetch(`${API_URL}/employees/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete employee');
+  return res.json();
+}
+
+export async function bulkUploadEmployeesApi(file, addedBy) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('addedBy', addedBy);
+  const res = await fetch(`${API_URL}/employees/bulk-upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to upload');
+  }
+  return res.json();
+}
+
+// ── Ask an Expert / Skill Search ──────────────────────────
+export async function searchEmployeesBySkillApi(skill, minRating = 1) {
+  const params = new URLSearchParams({ skill, minRating: String(minRating) });
+  const res = await fetch(`${API_URL}/employees/search-skills?${params}`);
+  return res.json();
+}
+
+// ── User Profile ──
+export async function getProfileApi(username) {
+  const res = await fetch(`${API_URL}/profile/${encodeURIComponent(username)}`);
+  return res.json();
+}
+
+export async function saveProfileApi(username, data) {
+  const res = await fetch(`${API_URL}/profile/${encodeURIComponent(username)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to save profile');
+  return res.json();
+}

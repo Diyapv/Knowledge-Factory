@@ -1,0 +1,6 @@
+Employee ID,Name,Email,Phone,Department,Designation,Role,Skills,Location,Join Date,Bio
+EB-3001,Arun Krishnan,arun.krishnan@eb.com,+91 98001 11111,Engineering,Principal Engineer,Platform Architect,"Go,Rust,Kubernetes,gRPC",EB India - Bangalore,2018-02-10,Designing high-performance platform services
+EB-3002,Nisha Thomas,nisha.thomas@eb.com,+91 98002 22222,Design,Senior UX Designer,Interaction Designer,"Sketch,Figma,Adobe XD,Motion Design",EB India - Chennai,2022-01-15,Crafting delightful user experiences
+EB-3003,Karthik Ramesh,karthik.ramesh@eb.com,+91 98003 33333,Data Science,Lead Data Engineer,Data Platform Lead,"Spark,Airflow,Python,Snowflake,dbt",EB India - Hyderabad,2020-08-20,Building scalable data pipelines
+EB-3004,Swati Jain,swati.jain@eb.com,+91 98004 44444,HR,Talent Acquisition Lead,Recruitment Head,"LinkedIn Recruiter,Workday,Employer Branding",EB India - Pune,2021-06-01,Hiring top talent for EB India
+EB-3005,Mohammad Faisal,mohammad.faisal@eb.com,+91 98005 55555,DevOps,SRE Lead,Site Reliability Engineer,"Prometheus,Grafana,Terraform,Helm,AWS",EB India - Bangalore,2019-11-25,Ensuring 99.99% uptime across services

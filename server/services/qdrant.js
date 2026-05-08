@@ -8,6 +8,13 @@ const COMMENTS_COLLECTION = 'comments';
 const KB_COLLECTION = 'kb_articles';
 const NOTES_COLLECTION = 'personal_notes';
 const RESUMES_COLLECTION = 'resumes';
+const FEEDBACK_COLLECTION = 'feedback';
+const TASKS_COLLECTION = 'daily_tasks';
+const DEVICES_COLLECTION = 'device_assets';
+const RECOGNITION_COLLECTION = 'recognitions';
+const JOBS_COLLECTION = 'internal_jobs';
+const EMPLOYEES_COLLECTION = 'employees';
+const PROFILES_COLLECTION = 'user_profiles';
 const VECTOR_SIZE = 768;
 
 const client = new QdrantClient({ url: 'http://localhost:6333', checkCompatibility: false });
@@ -65,6 +72,69 @@ async function ensureCollection() {
       vectors: { size: 4, distance: 'Cosine' },
     });
     console.log(`Created Qdrant collection: ${RESUMES_COLLECTION}`);
+  }
+  // Feedback collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(FEEDBACK_COLLECTION);
+  } catch {
+    await client.createCollection(FEEDBACK_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${FEEDBACK_COLLECTION}`);
+  }
+  // Daily tasks collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(TASKS_COLLECTION);
+  } catch {
+    await client.createCollection(TASKS_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${TASKS_COLLECTION}`);
+  }
+  // Device assets collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(DEVICES_COLLECTION);
+  } catch {
+    await client.createCollection(DEVICES_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${DEVICES_COLLECTION}`);
+  }
+  // Recognitions collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(RECOGNITION_COLLECTION);
+  } catch {
+    await client.createCollection(RECOGNITION_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${RECOGNITION_COLLECTION}`);
+  }
+  // Internal jobs collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(JOBS_COLLECTION);
+  } catch {
+    await client.createCollection(JOBS_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${JOBS_COLLECTION}`);
+  }
+  // Employees directory collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(EMPLOYEES_COLLECTION);
+  } catch {
+    await client.createCollection(EMPLOYEES_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${EMPLOYEES_COLLECTION}`);
+  }
+  // User profiles collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(PROFILES_COLLECTION);
+  } catch {
+    await client.createCollection(PROFILES_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${PROFILES_COLLECTION}`);
   }
 }
 
@@ -560,6 +630,472 @@ async function deleteResume(resumeId, username) {
   return { deleted: true };
 }
 
+// ── Feedback ────────────────────────────────────────────
+async function createFeedback(username, displayName, { title, content, category }) {
+  const id = Date.now();
+  const payload = {
+    username, displayName,
+    title, content,
+    category: category || 'general',
+    replies: [],
+    likes: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await client.upsert(FEEDBACK_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: String(id), ...payload };
+}
+
+async function getAllFeedback() {
+  const result = await client.scroll(FEEDBACK_COLLECTION, {
+    limit: 500,
+    with_payload: true,
+  });
+  return (result.points || []).map(p => ({
+    id: String(p.id),
+    ...p.payload,
+  })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+async function addReply(feedbackId, username, displayName, text) {
+  const existing = await client.retrieve(FEEDBACK_COLLECTION, { ids: [Number(feedbackId)], with_payload: true });
+  if (!existing.length) throw new Error('Feedback not found');
+  const payload = existing[0].payload;
+  const reply = { id: String(Date.now()), username, displayName, text, createdAt: new Date().toISOString() };
+  payload.replies = [...(payload.replies || []), reply];
+  payload.updatedAt = new Date().toISOString();
+  await client.upsert(FEEDBACK_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(feedbackId), vector: [0, 0, 0, 0], payload }],
+  });
+  return reply;
+}
+
+async function toggleFeedbackLike(feedbackId, username) {
+  const existing = await client.retrieve(FEEDBACK_COLLECTION, { ids: [Number(feedbackId)], with_payload: true });
+  if (!existing.length) throw new Error('Feedback not found');
+  const payload = existing[0].payload;
+  const likes = payload.likes || [];
+  const idx = likes.indexOf(username);
+  if (idx >= 0) likes.splice(idx, 1); else likes.push(username);
+  payload.likes = likes;
+  await client.upsert(FEEDBACK_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(feedbackId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { liked: idx < 0, count: likes.length };
+}
+
+async function deleteFeedback(feedbackId, username) {
+  const existing = await client.retrieve(FEEDBACK_COLLECTION, { ids: [Number(feedbackId)], with_payload: true });
+  if (!existing.length) throw new Error('Feedback not found');
+  if (existing[0].payload.username !== username) throw new Error('Not authorized');
+  await client.delete(FEEDBACK_COLLECTION, { wait: true, points: [Number(feedbackId)] });
+  return { deleted: true };
+}
+
+async function deleteReply(feedbackId, replyId, username) {
+  const existing = await client.retrieve(FEEDBACK_COLLECTION, { ids: [Number(feedbackId)], with_payload: true });
+  if (!existing.length) throw new Error('Feedback not found');
+  const payload = existing[0].payload;
+  const replyIdx = (payload.replies || []).findIndex(r => r.id === replyId);
+  if (replyIdx < 0) throw new Error('Reply not found');
+  if (payload.replies[replyIdx].username !== username) throw new Error('Not authorized');
+  payload.replies.splice(replyIdx, 1);
+  payload.updatedAt = new Date().toISOString();
+  await client.upsert(FEEDBACK_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(feedbackId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { deleted: true };
+}
+
+// ── Daily Task Tracker ──────────────────────────────────
+// Each daily log is keyed by username + date (YYYY-MM-DD) as a unique numeric ID
+function dateToId(username, date) {
+  // Create a deterministic numeric ID from username+date
+  let hash = 0;
+  const str = `${username}:${date}`;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+async function saveDailyLog(username, date, data) {
+  const id = dateToId(username, date);
+  const now = new Date().toISOString();
+  // Try to get existing
+  let existing = null;
+  try {
+    const result = await client.retrieve(TASKS_COLLECTION, { ids: [id], with_payload: true });
+    if (result.length && result[0].payload.username === username && result[0].payload.date === date) {
+      existing = result[0].payload;
+    }
+  } catch { /* not found */ }
+
+  const payload = {
+    username,
+    date,
+    tasks: data.tasks || (existing ? existing.tasks : []),
+    updates: data.updates !== undefined ? data.updates : (existing ? existing.updates : ''),
+    nextDayPlan: data.nextDayPlan !== undefined ? data.nextDayPlan : (existing ? existing.nextDayPlan : ''),
+    createdAt: existing ? existing.createdAt : now,
+    updatedAt: now,
+  };
+  await client.upsert(TASKS_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: String(id), ...payload };
+}
+
+async function getDailyLog(username, date) {
+  const id = dateToId(username, date);
+  try {
+    const result = await client.retrieve(TASKS_COLLECTION, { ids: [id], with_payload: true });
+    if (result.length && result[0].payload.username === username && result[0].payload.date === date) {
+      return { id: String(result[0].id), ...result[0].payload };
+    }
+  } catch { /* not found */ }
+  return null;
+}
+
+async function getUserTaskLogs(username, limit = 30) {
+  const result = await client.scroll(TASKS_COLLECTION, {
+    filter: { must: [{ key: 'username', match: { value: username } }] },
+    limit,
+    with_payload: true,
+  });
+  return (result.points || []).map(p => ({
+    id: String(p.id),
+    ...p.payload,
+  })).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+// ── Device Asset Management ─────────────────────────────
+async function addDevice(data) {
+  const id = Date.now();
+  const now = new Date().toISOString();
+  const payload = {
+    name: data.name || '',
+    type: data.type || 'laptop',
+    serialNumber: data.serialNumber || '',
+    manufacturer: data.manufacturer || '',
+    model: data.model || '',
+    purchaseDate: data.purchaseDate || '',
+    warrantyExpiry: data.warrantyExpiry || '',
+    status: data.status || 'available',
+    assignedTo: data.assignedTo || '',
+    assignedBy: data.assignedBy || '',
+    assignedDate: data.assignedDate || '',
+    location: data.location || '',
+    notes: data.notes || '',
+    specs: data.specs || '',
+    addedBy: data.addedBy || '',
+    createdAt: now,
+    updatedAt: now,
+  };
+  await client.upsert(DEVICES_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: String(id), ...payload };
+}
+
+async function getAllDevices(filters = {}) {
+  const must = [];
+  if (filters.type) must.push({ key: 'type', match: { value: filters.type } });
+  if (filters.status) must.push({ key: 'status', match: { value: filters.status } });
+  if (filters.assignedTo) must.push({ key: 'assignedTo', match: { value: filters.assignedTo } });
+
+  const result = await client.scroll(DEVICES_COLLECTION, {
+    filter: must.length ? { must } : undefined,
+    limit: 500,
+    with_payload: true,
+  });
+  return (result.points || []).map(p => ({
+    id: String(p.id),
+    ...p.payload,
+  })).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+async function getDeviceById(deviceId) {
+  const result = await client.retrieve(DEVICES_COLLECTION, { ids: [Number(deviceId)], with_payload: true });
+  if (!result.length) throw new Error('Device not found');
+  return { id: String(result[0].id), ...result[0].payload };
+}
+
+async function updateDevice(deviceId, fields) {
+  const existing = await client.retrieve(DEVICES_COLLECTION, { ids: [Number(deviceId)], with_payload: true });
+  if (!existing.length) throw new Error('Device not found');
+  const merged = { ...existing[0].payload, ...fields, updatedAt: new Date().toISOString() };
+  await client.upsert(DEVICES_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(deviceId), vector: [0, 0, 0, 0], payload: merged }],
+  });
+  return { id: deviceId, ...merged };
+}
+
+async function deleteDevice(deviceId) {
+  await client.delete(DEVICES_COLLECTION, { wait: true, points: [Number(deviceId)] });
+  return { deleted: true };
+}
+
+// ── Recognition System ──────────────────────────────────
+async function createRecognition({ from, fromName, to, toName, message, tags }) {
+  const id = Date.now();
+  const payload = { from, fromName, to, toName, message, tags: tags || [], likes: [], createdAt: new Date().toISOString() };
+  await client.upsert(RECOGNITION_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return { id, ...payload };
+}
+
+async function getAllRecognitions() {
+  const result = await client.scroll(RECOGNITION_COLLECTION, { limit: 1000, with_payload: true });
+  return result.points.map(p => ({ id: p.id, ...p.payload })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+async function toggleRecognitionLike(recId, username) {
+  const existing = await client.retrieve(RECOGNITION_COLLECTION, { ids: [Number(recId)], with_payload: true });
+  if (!existing.length) throw new Error('Recognition not found');
+  const payload = existing[0].payload;
+  const likes = payload.likes || [];
+  const idx = likes.indexOf(username);
+  if (idx >= 0) likes.splice(idx, 1); else likes.push(username);
+  payload.likes = likes;
+  await client.upsert(RECOGNITION_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(recId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: recId, ...payload };
+}
+
+async function deleteRecognition(recId) {
+  await client.delete(RECOGNITION_COLLECTION, { wait: true, points: [Number(recId)] });
+  return { deleted: true };
+}
+
+// ── Internal Job Board ──────────────────────────────────
+async function createJob({ title, department, type, location, description, requirements, postedBy, postedByName }) {
+  const id = Date.now();
+  const payload = {
+    title, department, type, location, description,
+    requirements: requirements || [], postedBy, postedByName,
+    applicants: [], status: 'open',
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  };
+  await client.upsert(JOBS_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return { id, ...payload };
+}
+
+async function getAllJobs() {
+  const result = await client.scroll(JOBS_COLLECTION, { limit: 1000, with_payload: true });
+  return result.points.map(p => ({ id: p.id, ...p.payload })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+async function getJobById(jobId) {
+  const result = await client.retrieve(JOBS_COLLECTION, { ids: [Number(jobId)], with_payload: true });
+  if (!result.length) throw new Error('Job not found');
+  return { id: result[0].id, ...result[0].payload };
+}
+
+async function applyToJob(jobId, { username, name, note }) {
+  const existing = await client.retrieve(JOBS_COLLECTION, { ids: [Number(jobId)], with_payload: true });
+  if (!existing.length) throw new Error('Job not found');
+  const payload = existing[0].payload;
+  const applicants = payload.applicants || [];
+  if (applicants.some(a => a.username === username)) throw new Error('Already applied');
+  applicants.push({ username, name, note: note || '', appliedAt: new Date().toISOString(), status: 'pending' });
+  payload.applicants = applicants;
+  payload.updatedAt = new Date().toISOString();
+  await client.upsert(JOBS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(jobId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: jobId, ...payload };
+}
+
+async function updateJobStatus(jobId, status) {
+  const existing = await client.retrieve(JOBS_COLLECTION, { ids: [Number(jobId)], with_payload: true });
+  if (!existing.length) throw new Error('Job not found');
+  const payload = existing[0].payload;
+  payload.status = status;
+  payload.updatedAt = new Date().toISOString();
+  await client.upsert(JOBS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(jobId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: jobId, ...payload };
+}
+
+async function updateApplicantStatus(jobId, username, status) {
+  const existing = await client.retrieve(JOBS_COLLECTION, { ids: [Number(jobId)], with_payload: true });
+  if (!existing.length) throw new Error('Job not found');
+  const payload = existing[0].payload;
+  const applicant = (payload.applicants || []).find(a => a.username === username);
+  if (!applicant) throw new Error('Applicant not found');
+  applicant.status = status;
+  payload.updatedAt = new Date().toISOString();
+  await client.upsert(JOBS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(jobId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: jobId, ...payload };
+}
+
+async function deleteJob(jobId) {
+  await client.delete(JOBS_COLLECTION, { wait: true, points: [Number(jobId)] });
+  return { deleted: true };
+}
+
+// ── Employee Directory ──────────────────────────────────
+async function addEmployee({ employeeId, name, email, phone, department, role, designation, skills, location, joinDate, avatar, bio, addedBy }) {
+  // Check for duplicates by employeeId or email
+  const existing = await client.scroll(EMPLOYEES_COLLECTION, { limit: 5000, with_payload: true });
+  for (const p of existing.points) {
+    if (employeeId && p.payload.employeeId && p.payload.employeeId === employeeId) {
+      throw new Error(`Duplicate: Employee ID "${employeeId}" already exists`);
+    }
+    if (email && p.payload.email && p.payload.email.toLowerCase() === email.toLowerCase()) {
+      throw new Error(`Duplicate: Email "${email}" already exists`);
+    }
+  }
+  const id = Date.now();
+  const payload = {
+    employeeId: employeeId || '', name, email: email || '', phone: phone || '',
+    department: department || '', role: role || '', designation: designation || '',
+    skills: skills || [], location: location || 'EB India',
+    joinDate: joinDate || '', avatar: avatar || '', bio: bio || '',
+    addedBy, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  };
+  await client.upsert(EMPLOYEES_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return { id, ...payload };
+}
+
+async function getAllEmployees() {
+  const result = await client.scroll(EMPLOYEES_COLLECTION, { limit: 5000, with_payload: true });
+  return result.points.map(p => ({ id: p.id, ...p.payload })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
+async function getEmployeeById(empId) {
+  const result = await client.retrieve(EMPLOYEES_COLLECTION, { ids: [Number(empId)], with_payload: true });
+  if (!result.length) throw new Error('Employee not found');
+  return { id: result[0].id, ...result[0].payload };
+}
+
+async function updateEmployee(empId, fields) {
+  const existing = await client.retrieve(EMPLOYEES_COLLECTION, { ids: [Number(empId)], with_payload: true });
+  if (!existing.length) throw new Error('Employee not found');
+  const merged = { ...existing[0].payload, ...fields, updatedAt: new Date().toISOString() };
+  await client.upsert(EMPLOYEES_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(empId), vector: [0, 0, 0, 0], payload: merged }],
+  });
+  return { id: empId, ...merged };
+}
+
+async function deleteEmployee(empId) {
+  await client.delete(EMPLOYEES_COLLECTION, { wait: true, points: [Number(empId)] });
+  return { deleted: true };
+}
+
+// ---- User Profiles ----
+function profileId(username) {
+  let h = 0;
+  for (let i = 0; i < username.length; i++) h = ((h << 5) - h + username.charCodeAt(i)) >>> 0;
+  return h || 1;
+}
+
+async function getProfile(username) {
+  const id = profileId(username);
+  try {
+    const pts = await client.retrieve(PROFILES_COLLECTION, { ids: [id], with_payload: true });
+    if (pts.length) return { id, ...pts[0].payload };
+  } catch { /* not found */ }
+  return null;
+}
+
+async function saveProfile(username, fields) {
+  const id = profileId(username);
+  const payload = { ...fields, username, updatedAt: new Date().toISOString() };
+  await client.upsert(PROFILES_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return { id, ...payload };
+}
+
+// Normalize skills: supports both old format ["React"] and new format [{name,rating}]
+function normalizeSkills(skills) {
+  if (!skills || !Array.isArray(skills)) return [];
+  return skills.map(s => {
+    if (typeof s === 'string') return { name: s, rating: 3 };
+    return { name: s.name || '', rating: s.rating || 3 };
+  });
+}
+
+async function searchEmployeesBySkill(skill, minRating = 1) {
+  const q = (skill || '').toLowerCase();
+  const results = [];
+  const seen = new Set(); // track by email or username to avoid duplicates
+
+  // Search employees collection
+  const allEmps = await client.scroll(EMPLOYEES_COLLECTION, { limit: 5000, with_payload: true });
+  for (const p of allEmps.points) {
+    const skills = normalizeSkills(p.payload.skills);
+    const matched = skills.filter(s => s.name.toLowerCase().includes(q) && s.rating >= minRating);
+    if (matched.length > 0) {
+      results.push({ id: p.id, source: 'employee', ...p.payload, skills, matchedSkills: matched });
+      if (p.payload.email) seen.add(p.payload.email.toLowerCase());
+    }
+  }
+
+  // Also search user profiles collection
+  try {
+    const allProfiles = await client.scroll(PROFILES_COLLECTION, { limit: 5000, with_payload: true });
+    for (const p of allProfiles.points) {
+      const pl = p.payload;
+      // Skip if already matched from employees by email
+      if (pl.email && seen.has(pl.email.toLowerCase())) continue;
+      const skills = normalizeSkills(pl.skills);
+      const matched = skills.filter(s => s.name.toLowerCase().includes(q) && s.rating >= minRating);
+      if (matched.length > 0) {
+        results.push({
+          id: p.id,
+          source: 'profile',
+          name: pl.fullName || pl.username || '',
+          email: pl.email || '',
+          department: pl.team || '',
+          designation: pl.role || '',
+          skills,
+          matchedSkills: matched,
+          username: pl.username,
+        });
+      }
+    }
+  } catch { /* profiles collection may not exist yet */ }
+
+  // Sort by highest matching skill rating descending
+  results.sort((a, b) => {
+    const aMax = Math.max(...a.matchedSkills.map(s => s.rating));
+    const bMax = Math.max(...b.matchedSkills.map(s => s.rating));
+    return bMax - aMax;
+  });
+  return results;
+}
+
 module.exports = {
   ensureCollection,
   upsertAsset,
@@ -591,4 +1127,37 @@ module.exports = {
   getUserResumes,
   getResumeById,
   deleteResume,
+  createFeedback,
+  getAllFeedback,
+  addReply,
+  toggleFeedbackLike,
+  deleteFeedback,
+  deleteReply,
+  saveDailyLog,
+  getDailyLog,
+  getUserTaskLogs,
+  addDevice,
+  getAllDevices,
+  getDeviceById,
+  updateDevice,
+  deleteDevice,
+  createRecognition,
+  getAllRecognitions,
+  toggleRecognitionLike,
+  deleteRecognition,
+  createJob,
+  getAllJobs,
+  getJobById,
+  applyToJob,
+  updateJobStatus,
+  updateApplicantStatus,
+  deleteJob,
+  addEmployee,
+  getAllEmployees,
+  getEmployeeById,
+  updateEmployee,
+  deleteEmployee,
+  searchEmployeesBySkill,
+  getProfile,
+  saveProfile,
 };

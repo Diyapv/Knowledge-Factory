@@ -4,7 +4,7 @@ import {
   Factory, LayoutDashboard, Upload, Search, FileText,
   Code2, Settings, BarChart3,
   ChevronsLeft, ChevronsRight, HelpCircle, ClipboardCheck, FileEdit,
-  LogOut, ShieldCheck, UserCheck, UserPen, Heart, Activity, BookOpen, Car, StickyNote, FileUser
+  LogOut, ShieldCheck, UserCheck, UserPen, Heart, Activity, BookOpen, Car, StickyNote, FileUser, MessageSquare, ListChecks, Monitor, Award, Briefcase, Contact
 } from 'lucide-react';
 import { fetchStats, fetchAssets } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -37,6 +37,7 @@ const getNavSections = (role) => {
         { to: '/favorites', icon: Heart, label: 'My Favorites' },
         { to: '/notes', icon: StickyNote, label: 'Personal Notes' },
         { to: '/resume', icon: FileUser, label: 'Resume Builder' },
+        { to: '/tasks', icon: ListChecks, label: 'Daily Tasks' },
       ],
     },
     {
@@ -44,7 +45,15 @@ const getNavSections = (role) => {
       items: [
         { to: '/analytics', icon: BarChart3, label: 'Analytics' },
         { to: '/activity', icon: Activity, label: 'Activity Log' },
-        ...(role === 'admin' ? [{ to: '/knowledge', icon: BookOpen, label: 'EB Knowledge Base' }] : []),
+        { to: '/feedback', icon: MessageSquare, label: 'Open Feedback' },
+        { to: '/devices', icon: Monitor, label: 'Asset Management' },
+        { to: '/recognition', icon: Award, label: 'Recognition Wall' },
+        { to: '/directory', icon: Contact, label: 'Employee Directory' },
+        { to: '/ask-expert', icon: HelpCircle, label: 'Ask an Expert' },
+        ...(role === 'admin' ? [
+          { to: '/jobs', icon: Briefcase, label: 'Internal Job Board' },
+          { to: '/knowledge', icon: BookOpen, label: 'EB Knowledge Base' },
+        ] : []),
       ],
     },
   ];

@@ -20,6 +20,13 @@ import KnowledgeManager from './pages/KnowledgeManager';
 import AutoTemplates from './pages/AutoTemplates';
 import PersonalNotes from './pages/PersonalNotes';
 import ResumeBuilder from './pages/ResumeBuilder';
+import Feedback from './pages/Feedback';
+import TaskTracker from './pages/TaskTracker';
+import AssetManager from './pages/AssetManager';
+import Recognition from './pages/Recognition';
+import JobBoard from './pages/JobBoard';
+import EmployeeDirectory from './pages/EmployeeDirectory';
+import AskExpert from './pages/AskExpert';
 
 function AppRoutes() {
   const { user } = useAuth();
@@ -46,6 +53,13 @@ function AppRoutes() {
         <Route path="/auto-templates" element={<AutoTemplates />} />
         <Route path="/notes" element={<PersonalNotes />} />
         <Route path="/resume" element={<ResumeBuilder />} />
+        <Route path="/feedback" element={<Feedback />} />
+        <Route path="/tasks" element={<TaskTracker />} />
+        <Route path="/devices" element={<AssetManager />} />
+        <Route path="/recognition" element={<Recognition />} />
+        <Route path="/jobs" element={<JobBoard />} />
+        <Route path="/directory" element={<EmployeeDirectory />} />
+        <Route path="/ask-expert" element={<AskExpert />} />
       </Route>
     </Routes>
   );

@@ -15,6 +15,14 @@ const {
   addKBArticle, getAllKBArticles, deleteKBArticle, searchKBArticles,
   addNote, getUserNotes, updateNote, deleteNote,
   saveResume, getUserResumes, getResumeById, deleteResume,
+  createFeedback, getAllFeedback, addReply, toggleFeedbackLike, deleteFeedback, deleteReply,
+  saveDailyLog, getDailyLog, getUserTaskLogs,
+  addDevice, getAllDevices, getDeviceById, updateDevice, deleteDevice,
+  createRecognition, getAllRecognitions, toggleRecognitionLike, deleteRecognition,
+  createJob, getAllJobs, getJobById, applyToJob, updateJobStatus, updateApplicantStatus, deleteJob,
+  addEmployee, getAllEmployees, getEmployeeById, updateEmployee, deleteEmployee,
+  searchEmployeesBySkill,
+  getProfile, saveProfile,
 } = require('./services/qdrant');
 const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
@@ -872,6 +880,458 @@ app.delete('/api/resumes/:id', async (req, res) => {
 });
 
 // ── Start (actual) ──────────────────────────────────────
+
+// ── Open Feedback ───────────────────────────────────────
+app.get('/api/feedback', async (req, res) => {
+  try {
+    const feedback = await getAllFeedback();
+    res.json(feedback);
+  } catch (err) {
+    console.error('Get feedback error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch feedback', details: err.message });
+  }
+});
+
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const { username, displayName, title, content, category } = req.body;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    if (!title && !content) return res.status(400).json({ error: 'title or content is required' });
+    const fb = await createFeedback(username, displayName || username, { title, content, category });
+    res.json(fb);
+  } catch (err) {
+    console.error('Create feedback error:', err.message);
+    res.status(500).json({ error: 'Failed to create feedback', details: err.message });
+  }
+});
+
+app.post('/api/feedback/:id/reply', async (req, res) => {
+  try {
+    const { username, displayName, text } = req.body;
+    if (!username || !text) return res.status(400).json({ error: 'username and text are required' });
+    const reply = await addReply(req.params.id, username, displayName || username, text);
+    res.json(reply);
+  } catch (err) {
+    console.error('Add reply error:', err.message);
+    res.status(500).json({ error: 'Failed to add reply', details: err.message });
+  }
+});
+
+app.post('/api/feedback/:id/like', async (req, res) => {
+  try {
+    const { username } = req.body;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    const result = await toggleFeedbackLike(req.params.id, username);
+    res.json(result);
+  } catch (err) {
+    console.error('Like feedback error:', err.message);
+    res.status(500).json({ error: 'Failed to toggle like', details: err.message });
+  }
+});
+
+app.delete('/api/feedback/:id', async (req, res) => {
+  try {
+    const { username } = req.query;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    await deleteFeedback(req.params.id, username);
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('Delete feedback error:', err.message);
+    const status = err.message === 'Not authorized' ? 403 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.delete('/api/feedback/:id/reply/:replyId', async (req, res) => {
+  try {
+    const { username } = req.query;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    await deleteReply(req.params.id, req.params.replyId, username);
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('Delete reply error:', err.message);
+    const status = err.message === 'Not authorized' ? 403 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// ── Start (final) ──────────────────────────────────────
+
+// ── Daily Task Tracker ──────────────────────────────────
+app.get('/api/tasks/daily', async (req, res) => {
+  try {
+    const { username, date } = req.query;
+    if (!username || !date) return res.status(400).json({ error: 'username and date are required' });
+    const log = await getDailyLog(username, date);
+    res.json(log || { tasks: [], updates: '', nextDayPlan: '' });
+  } catch (err) {
+    console.error('Get daily log error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch daily log', details: err.message });
+  }
+});
+
+app.get('/api/tasks/history', async (req, res) => {
+  try {
+    const { username, limit } = req.query;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    const logs = await getUserTaskLogs(username, Number(limit) || 30);
+    res.json(logs);
+  } catch (err) {
+    console.error('Get task history error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch history', details: err.message });
+  }
+});
+
+app.post('/api/tasks/daily', async (req, res) => {
+  try {
+    const { username, date, tasks, updates, nextDayPlan } = req.body;
+    if (!username || !date) return res.status(400).json({ error: 'username and date are required' });
+    const log = await saveDailyLog(username, date, { tasks, updates, nextDayPlan });
+    res.json(log);
+  } catch (err) {
+    console.error('Save daily log error:', err.message);
+    res.status(500).json({ error: 'Failed to save daily log', details: err.message });
+  }
+});
+
+// ── Server Start ────────────────────────────────────────
+
+// ── Device Asset Management ──────────────────────────────
+app.get('/api/devices', async (req, res) => {
+  try {
+    const { type, status, assignedTo } = req.query;
+    const devices = await getAllDevices({ type, status, assignedTo });
+    res.json(devices);
+  } catch (err) {
+    console.error('Get devices error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch devices', details: err.message });
+  }
+});
+
+app.get('/api/devices/:id', async (req, res) => {
+  try {
+    const device = await getDeviceById(req.params.id);
+    res.json(device);
+  } catch (err) {
+    const status = err.message === 'Device not found' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.post('/api/devices', async (req, res) => {
+  try {
+    const device = await addDevice(req.body);
+    res.json(device);
+  } catch (err) {
+    console.error('Add device error:', err.message);
+    res.status(500).json({ error: 'Failed to add device', details: err.message });
+  }
+});
+
+app.put('/api/devices/:id', async (req, res) => {
+  try {
+    const device = await updateDevice(req.params.id, req.body);
+    res.json(device);
+  } catch (err) {
+    console.error('Update device error:', err.message);
+    const status = err.message === 'Device not found' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.delete('/api/devices/:id', async (req, res) => {
+  try {
+    await deleteDevice(req.params.id);
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('Delete device error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Recognition System Routes ──────────────────────────────────
+app.get('/api/recognitions', async (req, res) => {
+  try {
+    const list = await getAllRecognitions();
+    res.json(list);
+  } catch (err) {
+    console.error('Get recognitions error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/recognitions', async (req, res) => {
+  try {
+    const rec = await createRecognition(req.body);
+    res.json(rec);
+  } catch (err) {
+    console.error('Create recognition error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/recognitions/:id/like', async (req, res) => {
+  try {
+    const rec = await toggleRecognitionLike(req.params.id, req.body.username);
+    res.json(rec);
+  } catch (err) {
+    console.error('Toggle recognition like error:', err.message);
+    const status = err.message === 'Recognition not found' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.delete('/api/recognitions/:id', async (req, res) => {
+  try {
+    await deleteRecognition(req.params.id);
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('Delete recognition error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Internal Job Board Routes ──────────────────────────────
+app.get('/api/jobs', async (req, res) => {
+  try {
+    const list = await getAllJobs();
+    res.json(list);
+  } catch (err) {
+    console.error('Get jobs error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/jobs/:id', async (req, res) => {
+  try {
+    const job = await getJobById(req.params.id);
+    res.json(job);
+  } catch (err) {
+    const status = err.message === 'Job not found' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.post('/api/jobs', async (req, res) => {
+  try {
+    const job = await createJob(req.body);
+    res.json(job);
+  } catch (err) {
+    console.error('Create job error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/jobs/:id/apply', async (req, res) => {
+  try {
+    const job = await applyToJob(req.params.id, req.body);
+    res.json(job);
+  } catch (err) {
+    const status = err.message === 'Job not found' ? 404 : err.message === 'Already applied' ? 409 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.put('/api/jobs/:id/status', async (req, res) => {
+  try {
+    const job = await updateJobStatus(req.params.id, req.body.status);
+    res.json(job);
+  } catch (err) {
+    const status = err.message === 'Job not found' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.put('/api/jobs/:id/applicant', async (req, res) => {
+  try {
+    const job = await updateApplicantStatus(req.params.id, req.body.username, req.body.status);
+    res.json(job);
+  } catch (err) {
+    const status = err.message === 'Job not found' || err.message === 'Applicant not found' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.delete('/api/jobs/:id', async (req, res) => {
+  try {
+    await deleteJob(req.params.id);
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('Delete job error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Employee Directory Routes ───────────────────────────
+app.get('/api/employees', async (req, res) => {
+  try {
+    const list = await getAllEmployees();
+    res.json(list);
+  } catch (err) {
+    console.error('Get employees error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Skill search must come before /:id route
+app.get('/api/employees/search-skills', async (req, res) => {
+  try {
+    const { skill, minRating } = req.query;
+    if (!skill) return res.status(400).json({ error: 'skill parameter is required' });
+    const results = await searchEmployeesBySkill(skill, Number(minRating) || 1);
+    res.json(results);
+  } catch (err) {
+    console.error('Search skills error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/employees/:id', async (req, res) => {
+  try {
+    const emp = await getEmployeeById(req.params.id);
+    res.json(emp);
+  } catch (err) {
+    const status = err.message === 'Employee not found' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.post('/api/employees', async (req, res) => {
+  try {
+    const emp = await addEmployee(req.body);
+    res.json(emp);
+  } catch (err) {
+    console.error('Add employee error:', err.message);
+    const status = err.message.startsWith('Duplicate') ? 409 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.put('/api/employees/:id', async (req, res) => {
+  try {
+    const emp = await updateEmployee(req.params.id, req.body);
+    res.json(emp);
+  } catch (err) {
+    const status = err.message === 'Employee not found' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.delete('/api/employees/:id', async (req, res) => {
+  try {
+    await deleteEmployee(req.params.id);
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('Delete employee error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bulk upload employees from CSV/TXT file
+app.post('/api/employees/bulk-upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const buffer = fs.readFileSync(req.file.path);
+    const text = buffer.toString('utf-8').trim();
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) return res.status(400).json({ error: 'File must have a header row and at least one data row' });
+
+    // Parse header
+    const sep = lines[0].includes('\t') ? '\t' : ',';
+    function parseCSVLine(line, delimiter) {
+      const fields = [];
+      let current = '';
+      let inQuotes = false;
+      for (let c = 0; c < line.length; c++) {
+        if (inQuotes) {
+          if (line[c] === '"' && line[c + 1] === '"') { current += '"'; c++; }
+          else if (line[c] === '"') { inQuotes = false; }
+          else { current += line[c]; }
+        } else {
+          if (line[c] === '"') { inQuotes = true; }
+          else if (line[c] === delimiter) { fields.push(current.trim()); current = ''; }
+          else { current += line[c]; }
+        }
+      }
+      fields.push(current.trim());
+      return fields;
+    }
+    const headers = parseCSVLine(lines[0], sep).map(h => h.toLowerCase().replace(/\s+/g, ''));
+
+    // Map common header names to our fields
+    const fieldMap = {
+      employeeid: 'employeeId', empid: 'employeeId', id: 'employeeId',
+      name: 'name', fullname: 'name', employeename: 'name',
+      email: 'email', emailid: 'email', emailaddress: 'email',
+      phone: 'phone', mobile: 'phone', phonenumber: 'phone', contact: 'phone',
+      department: 'department', dept: 'department',
+      designation: 'designation', title: 'designation', jobtitle: 'designation',
+      role: 'role', position: 'role',
+      skills: 'skills', skill: 'skills', expertise: 'skills',
+      location: 'location', office: 'location', city: 'location',
+      joindate: 'joinDate', dateofjoining: 'joinDate', doj: 'joinDate', joiningdate: 'joinDate',
+      bio: 'bio', about: 'bio', description: 'bio',
+    };
+
+    const colMapping = headers.map(h => fieldMap[h] || null);
+    const addedBy = req.body.addedBy || 'admin';
+    const results = [];
+    const errors = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      try {
+        const vals = parseCSVLine(lines[i], sep);
+        const entry = {};
+        colMapping.forEach((field, idx) => {
+          if (field && vals[idx]) {
+            if (field === 'skills') {
+              entry[field] = vals[idx].split(/[;|,]/).map(s => s.trim()).filter(Boolean);
+            } else {
+              entry[field] = vals[idx];
+            }
+          }
+        });
+        if (!entry.name) { errors.push(`Row ${i + 1}: Missing name`); continue; }
+        entry.addedBy = addedBy;
+        const emp = await addEmployee(entry);
+        results.push(emp);
+      } catch (rowErr) {
+        errors.push(`Row ${i + 1}: ${rowErr.message}`);
+      }
+    }
+
+    // Clean up uploaded file
+    fs.unlink(req.file.path, () => {});
+    res.json({ added: results.length, errors, employees: results });
+  } catch (err) {
+    console.error('Bulk upload employees error:', err.message);
+    res.status(500).json({ error: 'Failed to process file', details: err.message });
+  }
+});
+
+// ── User Profile ──────────────────────────────────
+app.get('/api/profile/:username', async (req, res) => {
+  try {
+    const profile = await getProfile(req.params.username);
+    res.json(profile || {});
+  } catch (err) {
+    console.error('Get profile error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/profile/:username', async (req, res) => {
+  try {
+    const saved = await saveProfile(req.params.username, req.body);
+    res.json(saved);
+  } catch (err) {
+    console.error('Save profile error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Final Server Start ──────────────────────────────────
 const PORT = 3001;
 
 async function start() {
