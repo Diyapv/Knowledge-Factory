@@ -4,7 +4,7 @@ import {
   Factory, LayoutDashboard, Upload, Search, FileText,
   Code2, Settings, BarChart3,
   ChevronsLeft, ChevronsRight, HelpCircle, ClipboardCheck, FileEdit,
-  LogOut, ShieldCheck, UserCheck, UserPen, Heart, Activity, BookOpen, Car, StickyNote, FileUser, MessageSquare, ListChecks, Monitor, Award, Briefcase, Contact
+  LogOut, ShieldCheck, UserCheck, UserPen, Heart, Activity, BookOpen, StickyNote, FileUser, MessageSquare, ListChecks, Monitor, Award, Briefcase, Contact
 } from 'lucide-react';
 import { fetchStats, fetchAssets } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -33,7 +33,6 @@ const getNavSections = (role) => {
       items: [
         { to: '/code', icon: Code2, label: 'Code Snippets' },
         { to: '/documents', icon: FileText, label: 'Documents' },
-        { to: '/auto-templates', icon: Car, label: 'Auto Templates' },
         { to: '/favorites', icon: Heart, label: 'My Favorites' },
         { to: '/notes', icon: StickyNote, label: 'Personal Notes' },
         { to: '/resume', icon: FileUser, label: 'Resume Builder' },
@@ -126,19 +125,24 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                     } ${
                       isActive
                         ? 'bg-gradient-to-r from-primary-50 to-primary-100/60 dark:from-primary-900/40 dark:to-primary-900/20 text-primary-700 dark:text-primary-400 shadow-sm shadow-primary-100/50 dark:shadow-none border border-primary-100 dark:border-primary-800/50 font-semibold'
-                        : 'text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800/70 hover:text-gray-900 dark:hover:text-white border border-transparent'
+                        : 'text-gray-600 dark:text-slate-400 hover:bg-gray-50/80 dark:hover:bg-slate-800/70 hover:text-gray-900 dark:hover:text-white border border-transparent hover:scale-[1.01]'
                     }`
                   }
                 >
-                  <item.icon className="w-5 h-5 shrink-0" />
-                  {!collapsed && <span className="truncate flex-1">{item.label}</span>}
-                  {!collapsed && badge > 0 && (
-                    <span className="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                      {badge}
-                    </span>
-                  )}
-                  {collapsed && badge > 0 && (
-                    <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-amber-500 rounded-full" />
+                  {({ isActive }) => (
+                    <>
+                      {isActive && !collapsed && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-primary-500 rounded-r-full" />}
+                      <item.icon className={`w-5 h-5 shrink-0 transition-transform duration-200 ${isActive ? '' : 'group-hover:scale-110'}`} />
+                      {!collapsed && <span className="truncate flex-1">{item.label}</span>}
+                      {!collapsed && badge > 0 && (
+                        <span className="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 animate-badge-bounce">
+                          {badge}
+                        </span>
+                      )}
+                      {collapsed && badge > 0 && (
+                        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-amber-500 rounded-full animate-glow-pulse" />
+                      )}
+                    </>
                   )}
                 </NavLink>
                 );

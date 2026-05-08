@@ -6,6 +6,7 @@ import { fetchEmployees, addEmployeeApi, updateEmployeeApi, deleteEmployeeApi, b
 import { useAuth } from '../context/AuthContext';
 
 const DEPARTMENTS = ['Engineering', 'Product', 'Design', 'QA', 'DevOps', 'Data Science', 'Management', 'HR', 'Marketing', 'Sales', 'Finance', 'Operations', 'Other'];
+const DESIGNATIONS = ['Executive Engineer', 'Senior Engineer', 'Module Lead', 'Technical Specialist', 'Senior Technical Specialist', 'Technical Architect', 'Senior Technical Architect', 'Business Solution Architect', 'Project Manager', 'Expert Project Manager', 'Team Manager', 'Senior Manager', 'Director', 'Deputy General Manager', 'Vice President', 'Lead Specialist', 'Intern', 'Other'];
 
 const DEPT_COLORS = {
   Engineering: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
@@ -292,8 +293,11 @@ export default function EmployeeDirectory() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Designation</label>
-              <input value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} placeholder="e.g. Senior Developer"
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
+              <select value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-emerald-500 outline-none">
+                <option value="">Select Designation</option>
+                {DESIGNATIONS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Role</label>

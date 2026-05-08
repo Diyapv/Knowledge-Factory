@@ -17,12 +17,11 @@ export default function Layout() {
         onMobileClose={() => setMobileOpen(false)}
       />
       <main
-        className={`flex-1 transition-all duration-300 ${
+        className={`flex-1 transition-all duration-300 ease-out ${
           collapsed ? 'md:ml-[72px]' : 'md:ml-64'
         }`}
-        key={location.pathname}
       >
-        <div className="animate-fade-in">
+        <div className="animate-page-enter" key={location.pathname}>
           <Outlet context={{ onMenuClick: () => setMobileOpen(true) }} />
         </div>
       </main>

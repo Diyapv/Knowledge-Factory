@@ -51,10 +51,10 @@ export default function Header({ title, subtitle, onMenuClick }) {
 
   return (
     <>
-      <header className="h-16 bg-white dark:bg-slate-900 border-b border-gray-200/50 dark:border-slate-800/60 flex items-center justify-between px-4 md:px-6 sticky top-0 z-30 shadow-[0_1px_3px_rgba(0,0,0,0.04)] dark:shadow-none">
+      <header className="h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-slate-800/60 flex items-center justify-between px-4 md:px-6 sticky top-0 z-30 shadow-[0_1px_3px_rgba(0,0,0,0.04)] dark:shadow-none">
         {/* Left: mobile menu + title */}
         <div className="flex items-center gap-3">
-          <button onClick={onMenuClick} className="md:hidden p-2 -ml-2 text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+          <button onClick={onMenuClick} className="md:hidden p-2 -ml-2 text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-all active:scale-95">
             <Menu className="w-5 h-5" />
           </button>
           <div>
@@ -68,7 +68,7 @@ export default function Header({ title, subtitle, onMenuClick }) {
           {/* Search trigger */}
           <button
             onClick={() => setSearchOpen(true)}
-            className="flex items-center gap-2 bg-gray-100/80 dark:bg-slate-800 hover:bg-gray-200/60 dark:hover:bg-slate-700 rounded-xl px-3.5 py-2.5 transition-all group border border-transparent hover:border-gray-200/50 dark:hover:border-slate-700"
+            className="flex items-center gap-2 bg-gray-100/80 dark:bg-slate-800 hover:bg-gray-200/60 dark:hover:bg-slate-700 rounded-xl px-3.5 py-2.5 transition-all group border border-transparent hover:border-gray-200/50 dark:hover:border-slate-700 hover:shadow-sm active:scale-[0.98]"
           >
             <Search className="w-4 h-4 text-gray-400 dark:text-slate-400" />
             <span className="hidden sm:inline text-sm text-gray-500 dark:text-slate-400 group-hover:text-gray-600 dark:group-hover:text-slate-300">Search...</span>
@@ -81,10 +81,10 @@ export default function Header({ title, subtitle, onMenuClick }) {
           <div className="relative">
             <button
               onClick={() => setShowNotif(!showNotif)}
-              className="relative p-2 text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+              className="relative p-2 text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-all active:scale-95"
             >
               <Bell className="w-5 h-5" />
-              {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white dark:ring-slate-800" />}
+              {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white dark:ring-slate-900 animate-glow-pulse" />}
             </button>
 
             {showNotif && (

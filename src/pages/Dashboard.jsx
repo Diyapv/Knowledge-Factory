@@ -148,8 +148,8 @@ export default function Dashboard() {
         {/* Stats Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 stagger-children">
           {statCards.map((s, i) => (
-            <div key={i} className="relative overflow-hidden bg-white dark:bg-slate-800 rounded-2xl p-4 md:p-5 border border-gray-100 dark:border-slate-700 card-premium cursor-default group shadow-sm">
-              <div className={`absolute top-0 right-0 w-28 h-28 rounded-full bg-gradient-to-br ${colorMap[s.color].card} opacity-[0.04] -translate-y-1/2 translate-x-1/3 group-hover:opacity-[0.08] group-hover:w-36 group-hover:h-36 transition-all duration-500`} />
+            <div key={i} className="relative overflow-hidden bg-white dark:bg-slate-800 rounded-2xl p-4 md:p-5 border border-gray-100 dark:border-slate-700 card-interactive cursor-default group shadow-sm">
+              <div className={`absolute top-0 right-0 w-28 h-28 rounded-full bg-gradient-to-br ${colorMap[s.color].card} opacity-[0.04] -translate-y-1/2 translate-x-1/3 group-hover:opacity-[0.1] group-hover:w-40 group-hover:h-40 transition-all duration-700 ease-out`} />
               <div className="relative">
                 <div className="flex items-center justify-between mb-3">
                   <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${colorMap[s.color].bg} border ${colorMap[s.color].border} group-hover:scale-110 transition-transform duration-300`}>

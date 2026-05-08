@@ -17,7 +17,6 @@ import Settings from './pages/Settings';
 import ActivityLog from './pages/ActivityLog';
 import Favorites from './pages/Favorites';
 import KnowledgeManager from './pages/KnowledgeManager';
-import AutoTemplates from './pages/AutoTemplates';
 import PersonalNotes from './pages/PersonalNotes';
 import ResumeBuilder from './pages/ResumeBuilder';
 import Feedback from './pages/Feedback';
@@ -50,7 +49,6 @@ function AppRoutes() {
         <Route path="/activity" element={<ActivityLog />} />
         <Route path="/favorites" element={<Favorites />} />
         <Route path="/knowledge" element={<KnowledgeManager />} />
-        <Route path="/auto-templates" element={<AutoTemplates />} />
         <Route path="/notes" element={<PersonalNotes />} />
         <Route path="/resume" element={<ResumeBuilder />} />
         <Route path="/feedback" element={<Feedback />} />
