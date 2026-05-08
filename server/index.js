@@ -13,6 +13,7 @@ const {
   rateAsset, getAssetRatings,
   findSimilarAssets,
   addKBArticle, getAllKBArticles, deleteKBArticle, searchKBArticles,
+  addNote, getUserNotes, updateNote, deleteNote,
 } = require('./services/qdrant');
 const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
@@ -765,6 +766,58 @@ app.post('/api/infohub/sync-space', async (req, res) => {
 async function seedData() {
   // No hardcoded seed data — all assets come from user uploads
 }
+
+// ── Personal Notes ──────────────────────────────────────
+app.get('/api/notes', async (req, res) => {
+  try {
+    const { username } = req.query;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    const notes = await getUserNotes(username);
+    res.json(notes);
+  } catch (err) {
+    console.error('Get notes error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch notes', details: err.message });
+  }
+});
+
+app.post('/api/notes', async (req, res) => {
+  try {
+    const { username, title, content, color } = req.body;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    if (!title && !content) return res.status(400).json({ error: 'title or content is required' });
+    const note = await addNote(username, { title, content, color });
+    res.json(note);
+  } catch (err) {
+    console.error('Add note error:', err.message);
+    res.status(500).json({ error: 'Failed to add note', details: err.message });
+  }
+});
+
+app.put('/api/notes/:id', async (req, res) => {
+  try {
+    const { username, title, content, color } = req.body;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    const note = await updateNote(req.params.id, username, { title, content, color });
+    res.json(note);
+  } catch (err) {
+    console.error('Update note error:', err.message);
+    const status = err.message === 'Not authorized' ? 403 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.delete('/api/notes/:id', async (req, res) => {
+  try {
+    const { username } = req.query;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    await deleteNote(req.params.id, username);
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('Delete note error:', err.message);
+    const status = err.message === 'Not authorized' ? 403 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
 
 // ── Start ───────────────────────────────────────────────
 const PORT = 3001;

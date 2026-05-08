@@ -6,6 +6,7 @@ const COLLECTION = 'assets';
 const ACTIVITY_COLLECTION = 'activity_log';
 const COMMENTS_COLLECTION = 'comments';
 const KB_COLLECTION = 'kb_articles';
+const NOTES_COLLECTION = 'personal_notes';
 const VECTOR_SIZE = 768;
 
 const client = new QdrantClient({ url: 'http://localhost:6333', checkCompatibility: false });
@@ -45,6 +46,15 @@ async function ensureCollection() {
       vectors: { size: VECTOR_SIZE, distance: 'Cosine' },
     });
     console.log(`Created Qdrant collection: ${KB_COLLECTION}`);
+  }
+  // Personal notes collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(NOTES_COLLECTION);
+  } catch {
+    await client.createCollection(NOTES_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${NOTES_COLLECTION}`);
   }
 }
 
@@ -436,6 +446,56 @@ async function searchKBArticles(query, limit = 5) {
     }));
 }
 
+// ── Personal Notes ──────────────────────────────────────
+async function addNote(username, { title, content, color }) {
+  const id = Date.now();
+  await client.upsert(NOTES_COLLECTION, {
+    wait: true,
+    points: [{
+      id,
+      vector: [0, 0, 0, 0],
+      payload: { username, title, content, color: color || 'yellow', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    }],
+  });
+  return { id, title, content, color: color || 'yellow' };
+}
+
+async function getUserNotes(username) {
+  const result = await client.scroll(NOTES_COLLECTION, {
+    filter: { must: [{ key: 'username', match: { value: username } }] },
+    limit: 500,
+    with_payload: true,
+  });
+  return (result.points || []).map(p => ({
+    id: String(p.id),
+    title: p.payload.title,
+    content: p.payload.content,
+    color: p.payload.color,
+    createdAt: p.payload.createdAt,
+    updatedAt: p.payload.updatedAt,
+  })).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+async function updateNote(noteId, username, fields) {
+  const existing = await client.retrieve(NOTES_COLLECTION, { ids: [Number(noteId)], with_payload: true });
+  if (!existing.length) throw new Error('Note not found');
+  if (existing[0].payload.username !== username) throw new Error('Not authorized');
+  const merged = { ...existing[0].payload, ...fields, updatedAt: new Date().toISOString() };
+  await client.upsert(NOTES_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(noteId), vector: [0, 0, 0, 0], payload: merged }],
+  });
+  return { id: noteId, ...merged };
+}
+
+async function deleteNote(noteId, username) {
+  const existing = await client.retrieve(NOTES_COLLECTION, { ids: [Number(noteId)], with_payload: true });
+  if (!existing.length) throw new Error('Note not found');
+  if (existing[0].payload.username !== username) throw new Error('Not authorized');
+  await client.delete(NOTES_COLLECTION, { wait: true, points: [Number(noteId)] });
+  return { deleted: true };
+}
+
 module.exports = {
   ensureCollection,
   upsertAsset,
@@ -459,4 +519,8 @@ module.exports = {
   getAllKBArticles,
   deleteKBArticle,
   searchKBArticles,
+  addNote,
+  getUserNotes,
+  updateNote,
+  deleteNote,
 };

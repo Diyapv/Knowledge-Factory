@@ -18,6 +18,7 @@ import ActivityLog from './pages/ActivityLog';
 import Favorites from './pages/Favorites';
 import KnowledgeManager from './pages/KnowledgeManager';
 import AutoTemplates from './pages/AutoTemplates';
+import PersonalNotes from './pages/PersonalNotes';
 
 function AppRoutes() {
   const { user } = useAuth();
@@ -42,6 +43,7 @@ function AppRoutes() {
         <Route path="/favorites" element={<Favorites />} />
         <Route path="/knowledge" element={<KnowledgeManager />} />
         <Route path="/auto-templates" element={<AutoTemplates />} />
+        <Route path="/notes" element={<PersonalNotes />} />
       </Route>
     </Routes>
   );
