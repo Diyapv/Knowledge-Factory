@@ -4,7 +4,7 @@ import {
   Factory, LayoutDashboard, Upload, Search, FileText,
   Code2, Settings, BarChart3,
   ChevronsLeft, ChevronsRight, HelpCircle, ClipboardCheck, FileEdit,
-  LogOut, ShieldCheck, UserCheck, UserPen, Heart, Activity, BookOpen, Car, StickyNote
+  LogOut, ShieldCheck, UserCheck, UserPen, Heart, Activity, BookOpen, Car, StickyNote, FileUser
 } from 'lucide-react';
 import { fetchStats, fetchAssets } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -36,6 +36,7 @@ const getNavSections = (role) => {
         { to: '/auto-templates', icon: Car, label: 'Auto Templates' },
         { to: '/favorites', icon: Heart, label: 'My Favorites' },
         { to: '/notes', icon: StickyNote, label: 'Personal Notes' },
+        { to: '/resume', icon: FileUser, label: 'Resume Builder' },
       ],
     },
     {

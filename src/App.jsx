@@ -19,6 +19,7 @@ import Favorites from './pages/Favorites';
 import KnowledgeManager from './pages/KnowledgeManager';
 import AutoTemplates from './pages/AutoTemplates';
 import PersonalNotes from './pages/PersonalNotes';
+import ResumeBuilder from './pages/ResumeBuilder';
 
 function AppRoutes() {
   const { user } = useAuth();
@@ -44,6 +45,7 @@ function AppRoutes() {
         <Route path="/knowledge" element={<KnowledgeManager />} />
         <Route path="/auto-templates" element={<AutoTemplates />} />
         <Route path="/notes" element={<PersonalNotes />} />
+        <Route path="/resume" element={<ResumeBuilder />} />
       </Route>
     </Routes>
   );

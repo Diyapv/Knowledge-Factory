@@ -14,6 +14,7 @@ const {
   findSimilarAssets,
   addKBArticle, getAllKBArticles, deleteKBArticle, searchKBArticles,
   addNote, getUserNotes, updateNote, deleteNote,
+  saveResume, getUserResumes, getResumeById, deleteResume,
 } = require('./services/qdrant');
 const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
@@ -820,6 +821,57 @@ app.delete('/api/notes/:id', async (req, res) => {
 });
 
 // ── Start ───────────────────────────────────────────────
+
+// ── Resume Builder ──────────────────────────────────────
+app.get('/api/resumes', async (req, res) => {
+  try {
+    const { username } = req.query;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    const resumes = await getUserResumes(username);
+    res.json(resumes);
+  } catch (err) {
+    console.error('Get resumes error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch resumes', details: err.message });
+  }
+});
+
+app.get('/api/resumes/:id', async (req, res) => {
+  try {
+    const resume = await getResumeById(req.params.id);
+    res.json(resume);
+  } catch (err) {
+    console.error('Get resume error:', err.message);
+    const status = err.message === 'Resume not found' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.post('/api/resumes', async (req, res) => {
+  try {
+    const { username, ...data } = req.body;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    const resume = await saveResume(username, data);
+    res.json(resume);
+  } catch (err) {
+    console.error('Save resume error:', err.message);
+    res.status(500).json({ error: 'Failed to save resume', details: err.message });
+  }
+});
+
+app.delete('/api/resumes/:id', async (req, res) => {
+  try {
+    const { username } = req.query;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    await deleteResume(req.params.id, username);
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('Delete resume error:', err.message);
+    const status = err.message === 'Not authorized' ? 403 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+// ── Start (actual) ──────────────────────────────────────
 const PORT = 3001;
 
 async function start() {

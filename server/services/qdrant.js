@@ -7,6 +7,7 @@ const ACTIVITY_COLLECTION = 'activity_log';
 const COMMENTS_COLLECTION = 'comments';
 const KB_COLLECTION = 'kb_articles';
 const NOTES_COLLECTION = 'personal_notes';
+const RESUMES_COLLECTION = 'resumes';
 const VECTOR_SIZE = 768;
 
 const client = new QdrantClient({ url: 'http://localhost:6333', checkCompatibility: false });
@@ -55,6 +56,15 @@ async function ensureCollection() {
       vectors: { size: 4, distance: 'Cosine' },
     });
     console.log(`Created Qdrant collection: ${NOTES_COLLECTION}`);
+  }
+  // Resumes collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(RESUMES_COLLECTION);
+  } catch {
+    await client.createCollection(RESUMES_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${RESUMES_COLLECTION}`);
   }
 }
 
@@ -496,6 +506,60 @@ async function deleteNote(noteId, username) {
   return { deleted: true };
 }
 
+// ── Resumes ─────────────────────────────────────────────
+async function saveResume(username, data) {
+  const id = data.id ? Number(data.id) : Date.now();
+  const now = new Date().toISOString();
+  const payload = {
+    username,
+    template: data.template || 'classic',
+    fullName: data.fullName || '',
+    jobTitle: data.jobTitle || '',
+    email: data.email || '',
+    phone: data.phone || '',
+    location: data.location || '',
+    summary: data.summary || '',
+    experience: data.experience || [],
+    education: data.education || [],
+    skills: data.skills || [],
+    projects: data.projects || [],
+    certifications: data.certifications || [],
+    createdAt: data.createdAt || now,
+    updatedAt: now,
+  };
+  await client.upsert(RESUMES_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: String(id), ...payload };
+}
+
+async function getUserResumes(username) {
+  const result = await client.scroll(RESUMES_COLLECTION, {
+    filter: { must: [{ key: 'username', match: { value: username } }] },
+    limit: 100,
+    with_payload: true,
+  });
+  return (result.points || []).map(p => ({
+    id: String(p.id),
+    ...p.payload,
+  })).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+async function getResumeById(resumeId) {
+  const result = await client.retrieve(RESUMES_COLLECTION, { ids: [Number(resumeId)], with_payload: true });
+  if (!result.length) throw new Error('Resume not found');
+  return { id: String(result[0].id), ...result[0].payload };
+}
+
+async function deleteResume(resumeId, username) {
+  const existing = await client.retrieve(RESUMES_COLLECTION, { ids: [Number(resumeId)], with_payload: true });
+  if (!existing.length) throw new Error('Resume not found');
+  if (existing[0].payload.username !== username) throw new Error('Not authorized');
+  await client.delete(RESUMES_COLLECTION, { wait: true, points: [Number(resumeId)] });
+  return { deleted: true };
+}
+
 module.exports = {
   ensureCollection,
   upsertAsset,
@@ -523,4 +587,8 @@ module.exports = {
   getUserNotes,
   updateNote,
   deleteNote,
+  saveResume,
+  getUserResumes,
+  getResumeById,
+  deleteResume,
 };

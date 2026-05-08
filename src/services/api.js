@@ -362,3 +362,34 @@ export async function deleteNoteApi(id, username) {
   if (!res.ok) throw new Error('Failed to delete note');
   return res.json();
 }
+
+// ── Resume Builder ────────────────────────────────────────
+export async function fetchResumes(username) {
+  const res = await fetch(`${API_URL}/resumes?username=${encodeURIComponent(username)}`);
+  if (!res.ok) throw new Error('Failed to fetch resumes');
+  return res.json();
+}
+
+export async function fetchResumeById(id) {
+  const res = await fetch(`${API_URL}/resumes/${id}`);
+  if (!res.ok) throw new Error('Failed to fetch resume');
+  return res.json();
+}
+
+export async function saveResumeApi(username, data) {
+  const res = await fetch(`${API_URL}/resumes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, ...data }),
+  });
+  if (!res.ok) throw new Error('Failed to save resume');
+  return res.json();
+}
+
+export async function deleteResumeApi(id, username) {
+  const res = await fetch(`${API_URL}/resumes/${id}?username=${encodeURIComponent(username)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to delete resume');
+  return res.json();
+}
