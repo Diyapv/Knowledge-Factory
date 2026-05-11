@@ -1,15 +1,21 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
   MessageSquare, Plus, Trash2, X, Send, Loader2, Search,
-  ThumbsUp, MessageCircle, ChevronDown, ChevronUp, Filter
+  ThumbsUp, MessageCircle, ChevronDown, ChevronUp, Filter, AtSign
 } from 'lucide-react';
 import Header from '../components/Header';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchFeedback, createFeedbackApi, addReplyApi,
-  toggleFeedbackLikeApi, deleteFeedbackApi, deleteReplyApi
+  toggleFeedbackLikeApi, deleteFeedbackApi, deleteReplyApi, toggleReplyLikeApi,
+  fetchEmployees, notifyMentionsApi
 } from '../services/api';
+
+// Extract @mentioned names from text
+function hasMentions(text) {
+  return /@\w/.test(text);
+}
 
 const CATEGORIES = [
   { id: 'general', label: 'General', color: 'blue' },
@@ -47,6 +53,132 @@ function getInitials(name) {
   return (name || '??').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
+// Render @mentions as highlighted spans
+function renderWithMentions(text) {
+  if (!text) return null;
+  const parts = text.split(/(@\w[\w.\- ]*\w)/g);
+  return parts.map((part, i) =>
+    /^@\w/.test(part)
+      ? <span key={i} className="text-indigo-600 dark:text-indigo-400 font-semibold bg-indigo-50 dark:bg-indigo-900/30 px-1 rounded">{part}</span>
+      : part
+  );
+}
+
+// Reusable mention-aware input
+function MentionInput({ value, onChange, onKeyDown, placeholder, employees, className, isTextarea, rows }) {
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionPos, setMentionPos] = useState(null);
+  const [showMentions, setShowMentions] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const inputRef = useRef(null);
+  const dropdownRef = useRef(null);
+
+  const mentionResults = mentionQuery
+    ? employees.filter(e =>
+        (e.name || '').toLowerCase().includes(mentionQuery.toLowerCase())
+      ).slice(0, 6)
+    : [];
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    const cursor = e.target.selectionStart;
+    onChange(val);
+
+    // Check if we're in a @mention context
+    const before = val.slice(0, cursor);
+    const atMatch = before.match(/@(\w[\w.\- ]*)$/);
+    if (atMatch) {
+      setMentionQuery(atMatch[1]);
+      setMentionPos(cursor);
+      setShowMentions(true);
+      setSelectedIdx(0);
+    } else {
+      setShowMentions(false);
+      setMentionQuery('');
+    }
+  };
+
+  const insertMention = useCallback((name) => {
+    const before = value.slice(0, mentionPos);
+    const atIdx = before.lastIndexOf('@');
+    const after = value.slice(mentionPos);
+    const newValue = before.slice(0, atIdx) + '@' + name + ' ' + after;
+    onChange(newValue);
+    setShowMentions(false);
+    setMentionQuery('');
+    setTimeout(() => {
+      const pos = atIdx + name.length + 2;
+      inputRef.current?.setSelectionRange(pos, pos);
+      inputRef.current?.focus();
+    }, 0);
+  }, [value, mentionPos, onChange]);
+
+  const handleKeyDown = (e) => {
+    if (showMentions && mentionResults.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIdx(i => (i + 1) % mentionResults.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIdx(i => (i - 1 + mentionResults.length) % mentionResults.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        insertMention(mentionResults[selectedIdx].name);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setShowMentions(false);
+        return;
+      }
+    }
+    onKeyDown?.(e);
+  };
+
+  const Tag = isTextarea ? 'textarea' : 'input';
+
+  return (
+    <div className="relative flex-1">
+      <Tag
+        ref={inputRef}
+        type={isTextarea ? undefined : 'text'}
+        rows={isTextarea ? rows : undefined}
+        placeholder={placeholder}
+        value={value}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={() => setTimeout(() => setShowMentions(false), 200)}
+        className={className}
+      />
+      {showMentions && mentionResults.length > 0 && (
+        <div ref={dropdownRef} className="absolute left-0 bottom-full mb-1 w-64 max-h-48 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl z-50">
+          <div className="px-2.5 py-1.5 text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-700 flex items-center gap-1">
+            <AtSign className="w-3 h-3" /> Mention someone
+          </div>
+          {mentionResults.map((emp, i) => (
+            <button
+              key={emp.id || i}
+              onMouseDown={(e) => { e.preventDefault(); insertMention(emp.name); }}
+              className={`w-full text-left px-3 py-2 flex items-center gap-2.5 text-sm transition-colors ${i === selectedIdx ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'}`}
+            >
+              <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
+                {getInitials(emp.name)}
+              </div>
+              <div className="min-w-0">
+                <span className="font-medium text-slate-800 dark:text-white truncate block">{emp.name}</span>
+                {emp.designation && <span className="text-xs text-slate-400 truncate block">{emp.designation}</span>}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Feedback() {
   const { onMenuClick } = useOutletContext();
   const { user } = useAuth();
@@ -60,6 +192,7 @@ export default function Feedback() {
   const [expandedReplies, setExpandedReplies] = useState({});
   const [replyText, setReplyText] = useState({});
   const [replyLoading, setReplyLoading] = useState({});
+  const [employees, setEmployees] = useState([]);
   const titleRef = useRef(null);
 
   const load = () => {
@@ -69,13 +202,25 @@ export default function Feedback() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    fetchEmployees().then(setEmployees).catch(() => {});
+  }, []);
 
   const handlePost = async () => {
     if (!form.title.trim() && !form.content.trim()) return;
     setPosting(true);
     try {
       await createFeedbackApi(user.username, user.name || user.username, form);
+      // Notify mentioned users
+      if (hasMentions(form.content)) {
+        notifyMentionsApi({
+          mentionedBy: user.name || user.username,
+          context: 'feedback',
+          feedbackTitle: form.title,
+          messageText: form.content,
+        }).catch(() => {});
+      }
       setForm({ title: '', content: '', category: 'general' });
       setShowForm(false);
       load();
@@ -90,12 +235,21 @@ export default function Feedback() {
     } catch { /* ignore */ }
   };
 
-  const handleReply = async (feedbackId) => {
+  const handleReply = async (feedbackId, feedbackTitle) => {
     const text = (replyText[feedbackId] || '').trim();
     if (!text) return;
     setReplyLoading(r => ({ ...r, [feedbackId]: true }));
     try {
       await addReplyApi(feedbackId, user.username, user.name || user.username, text);
+      // Notify mentioned users
+      if (hasMentions(text)) {
+        notifyMentionsApi({
+          mentionedBy: user.name || user.username,
+          context: 'reply',
+          feedbackTitle: feedbackTitle || '',
+          messageText: text,
+        }).catch(() => {});
+      }
       setReplyText(r => ({ ...r, [feedbackId]: '' }));
       load();
     } catch { /* ignore */ }
@@ -112,6 +266,13 @@ export default function Feedback() {
   const handleDeleteReply = async (feedbackId, replyId) => {
     try {
       await deleteReplyApi(feedbackId, replyId, user.username);
+      load();
+    } catch { /* ignore */ }
+  };
+
+  const handleReplyLike = async (feedbackId, replyId) => {
+    try {
+      await toggleReplyLikeApi(feedbackId, replyId, user.username);
       load();
     } catch { /* ignore */ }
   };
@@ -182,9 +343,12 @@ export default function Feedback() {
               value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
             />
-            <textarea placeholder="Write your feedback, idea, or suggestion..."
-              value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
-              rows={4}
+            <MentionInput
+              isTextarea rows={4}
+              placeholder="Write your feedback, idea, or suggestion... Type @ to mention someone"
+              value={form.content}
+              onChange={val => setForm(f => ({ ...f, content: val }))}
+              employees={employees}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y"
             />
             <div className="flex items-center justify-between">
@@ -245,7 +409,7 @@ export default function Feedback() {
                           )}
                         </div>
                         {item.title && <h4 className="font-semibold text-slate-800 dark:text-white mt-1">{item.title}</h4>}
-                        {item.content && <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-wrap">{item.content}</p>}
+                        {item.content && <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-wrap">{renderWithMentions(item.content)}</p>}
                       </div>
                     </div>
 
@@ -286,7 +450,12 @@ export default function Feedback() {
                                   </button>
                                 )}
                               </div>
-                              <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5">{reply.text}</p>
+                              <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5 whitespace-pre-wrap">{renderWithMentions(reply.text)}</p>
+                              <button onClick={() => handleReplyLike(item.id, reply.id)}
+                                className={`flex items-center gap-1 mt-1.5 text-xs transition-colors ${(reply.likes || []).includes(user.username) ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-slate-400 hover:text-indigo-500'}`}>
+                                <ThumbsUp className={`w-3 h-3 ${(reply.likes || []).includes(user.username) ? 'fill-current' : ''}`} />
+                                {(reply.likes || []).length > 0 && <span>{(reply.likes || []).length}</span>}
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -297,15 +466,15 @@ export default function Feedback() {
                         <div className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-xs font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
                           {getInitials(user.name || user.username)}
                         </div>
-                        <input
-                          type="text"
-                          placeholder="Write a reply..."
+                        <MentionInput
+                          placeholder="Write a reply... Type @ to mention"
                           value={replyText[item.id] || ''}
-                          onChange={e => setReplyText(r => ({ ...r, [item.id]: e.target.value }))}
-                          onKeyDown={e => e.key === 'Enter' && handleReply(item.id)}
+                          onChange={val => setReplyText(r => ({ ...r, [item.id]: val }))}
+                          onKeyDown={e => e.key === 'Enter' && !e.defaultPrevented && handleReply(item.id, item.title)}
+                          employees={employees}
                           className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
                         />
-                        <button onClick={() => handleReply(item.id)}
+                        <button onClick={() => handleReply(item.id, item.title)}
                           disabled={!(replyText[item.id] || '').trim() || replyLoading[item.id]}
                           className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white transition-colors">
                           {replyLoading[item.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

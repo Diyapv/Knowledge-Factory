@@ -15,7 +15,7 @@ const {
   addKBArticle, getAllKBArticles, deleteKBArticle, searchKBArticles,
   addNote, getUserNotes, updateNote, deleteNote,
   saveResume, getUserResumes, getResumeById, deleteResume,
-  createFeedback, getAllFeedback, addReply, toggleFeedbackLike, deleteFeedback, deleteReply,
+  createFeedback, getAllFeedback, addReply, toggleFeedbackLike, deleteFeedback, deleteReply, toggleReplyLike,
   saveDailyLog, getDailyLog, getUserTaskLogs,
   addDevice, getAllDevices, getDeviceById, updateDevice, deleteDevice,
   createRecognition, getAllRecognitions, toggleRecognitionLike, deleteRecognition,
@@ -26,6 +26,7 @@ const {
 } = require('./services/qdrant');
 const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
+const { sendMentionNotification } = require('./services/mailer');
 const { extractText, isSupportedFile, MAX_FILE_SIZE } = require('./services/fileParser');
 
 // Ensure uploads directory exists
@@ -952,6 +953,50 @@ app.delete('/api/feedback/:id/reply/:replyId', async (req, res) => {
     console.error('Delete reply error:', err.message);
     const status = err.message === 'Not authorized' ? 403 : 500;
     res.status(status).json({ error: err.message });
+  }
+});
+
+app.post('/api/feedback/:id/reply/:replyId/like', async (req, res) => {
+  try {
+    const { username } = req.body;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    const result = await toggleReplyLike(req.params.id, req.params.replyId, username);
+    res.json(result);
+  } catch (err) {
+    console.error('Like reply error:', err.message);
+    res.status(500).json({ error: 'Failed to toggle reply like', details: err.message });
+  }
+});
+
+// Notify mentioned users via email
+app.post('/api/feedback/notify-mentions', async (req, res) => {
+  try {
+    const { mentionedBy, context, feedbackTitle, messageText } = req.body;
+    if (!messageText) return res.json({ sent: 0 });
+
+    // Find all @mentions by checking employee names against the text
+    const allEmployees = await getAllEmployees();
+    let sent = 0;
+    for (const emp of allEmployees) {
+      if (!emp.name || !emp.email) continue;
+      // Check if @Name appears in the text (case-insensitive)
+      const pattern = new RegExp('@' + emp.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|$|[.,!?;])', 'i');
+      if (pattern.test(messageText)) {
+        sendMentionNotification({
+          toEmail: emp.email,
+          mentionedName: emp.name,
+          mentionedBy,
+          context: context || 'feedback',
+          feedbackTitle: feedbackTitle || '',
+          messageText: messageText || '',
+        });
+        sent++;
+      }
+    }
+    res.json({ sent });
+  } catch (err) {
+    console.error('Notify mentions error:', err.message);
+    res.status(500).json({ error: 'Failed to notify', details: err.message });
   }
 });
 

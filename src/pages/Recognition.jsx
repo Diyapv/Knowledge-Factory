@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Award, Heart, Send, Trash2, Search, Star, Users, TrendingUp } from 'lucide-react';
-import { fetchRecognitions, createRecognitionApi, toggleRecognitionLikeApi, deleteRecognitionApi } from '../services/api';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Award, Heart, Send, Trash2, Search, Star, Users, TrendingUp, AtSign } from 'lucide-react';
+import { fetchRecognitions, createRecognitionApi, toggleRecognitionLikeApi, deleteRecognitionApi, fetchEmployees, notifyMentionsApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const TAGS = [
@@ -24,6 +24,116 @@ const TAG_COLORS = {
   'Positive Attitude': 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
 };
 
+function getInitials(name) {
+  return (name || '??').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
+// Render @mentions as highlighted spans
+function renderWithMentions(text) {
+  if (!text) return null;
+  const parts = text.split(/(@\w[\w.\- ]*\w)/g);
+  return parts.map((part, i) =>
+    /^@\w/.test(part)
+      ? <span key={i} className="text-yellow-700 dark:text-yellow-400 font-semibold bg-yellow-50 dark:bg-yellow-900/30 px-1 rounded">{part}</span>
+      : part
+  );
+}
+
+function hasMentions(text) {
+  return /@\w/.test(text);
+}
+
+// Mention-aware input
+function MentionInput({ value, onChange, employees, className, rows, placeholder }) {
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionPos, setMentionPos] = useState(null);
+  const [showMentions, setShowMentions] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const inputRef = useRef(null);
+
+  const mentionResults = mentionQuery
+    ? employees.filter(e => (e.name || '').toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
+    : [];
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    const cursor = e.target.selectionStart;
+    onChange(val);
+    const before = val.slice(0, cursor);
+    const atMatch = before.match(/@(\w[\w.\- ]*)$/);
+    if (atMatch) {
+      setMentionQuery(atMatch[1]);
+      setMentionPos(cursor);
+      setShowMentions(true);
+      setSelectedIdx(0);
+    } else {
+      setShowMentions(false);
+      setMentionQuery('');
+    }
+  };
+
+  const insertMention = useCallback((name) => {
+    const before = value.slice(0, mentionPos);
+    const atIdx = before.lastIndexOf('@');
+    const after = value.slice(mentionPos);
+    const newValue = before.slice(0, atIdx) + '@' + name + ' ' + after;
+    onChange(newValue);
+    setShowMentions(false);
+    setMentionQuery('');
+    setTimeout(() => {
+      const pos = atIdx + name.length + 2;
+      inputRef.current?.setSelectionRange(pos, pos);
+      inputRef.current?.focus();
+    }, 0);
+  }, [value, mentionPos, onChange]);
+
+  const handleKeyDown = (e) => {
+    if (showMentions && mentionResults.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx(i => (i + 1) % mentionResults.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx(i => (i - 1 + mentionResults.length) % mentionResults.length); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(mentionResults[selectedIdx].name); return; }
+      if (e.key === 'Escape') { setShowMentions(false); return; }
+    }
+  };
+
+  return (
+    <div className="relative">
+      <textarea
+        ref={inputRef}
+        rows={rows}
+        placeholder={placeholder}
+        value={value}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={() => setTimeout(() => setShowMentions(false), 200)}
+        className={className}
+      />
+      {showMentions && mentionResults.length > 0 && (
+        <div className="absolute left-0 bottom-full mb-1 w-64 max-h-48 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50">
+          <div className="px-2.5 py-1.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-gray-700 flex items-center gap-1">
+            <AtSign className="w-3 h-3" /> Mention someone
+          </div>
+          {mentionResults.map((emp, i) => (
+            <button
+              key={emp.id || i}
+              onMouseDown={(e) => { e.preventDefault(); insertMention(emp.name); }}
+              className={`w-full text-left px-3 py-2 flex items-center gap-2.5 text-sm transition-colors ${i === selectedIdx ? 'bg-yellow-50 dark:bg-yellow-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'}`}
+            >
+              <div className="w-6 h-6 rounded-full bg-yellow-100 dark:bg-yellow-900/40 flex items-center justify-center text-[10px] font-bold text-yellow-700 dark:text-yellow-400 shrink-0">
+                {getInitials(emp.name)}
+              </div>
+              <div className="min-w-0">
+                <span className="font-medium text-gray-800 dark:text-white truncate block">{emp.name}</span>
+                {emp.designation && <span className="text-xs text-gray-400 truncate block">{emp.designation}</span>}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Recognition() {
   const { user } = useAuth();
   const [recognitions, setRecognitions] = useState([]);
@@ -37,8 +147,12 @@ export default function Recognition() {
   const [toName, setToName] = useState('');
   const [message, setMessage] = useState('');
   const [selectedTags, setSelectedTags] = useState([]);
+  const [employees, setEmployees] = useState([]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    fetchEmployees().then(setEmployees).catch(() => {});
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -62,6 +176,15 @@ export default function Recognition() {
         tags: selectedTags,
       });
       setRecognitions(prev => [rec, ...prev]);
+      // Notify mentioned users via email
+      if (hasMentions(message)) {
+        notifyMentionsApi({
+          mentionedBy: user.name || user.username,
+          context: 'feedback',
+          feedbackTitle: `Recognition for ${toName.trim() || to.trim()}`,
+          messageText: message.trim(),
+        }).catch(() => {});
+      }
       setTo(''); setToName(''); setMessage(''); setSelectedTags([]);
       setShowForm(false);
     } catch { /* ignore */ }
@@ -174,8 +297,14 @@ export default function Recognition() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Message *</label>
-            <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3} required placeholder="Why are you recognizing this person?"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-yellow-500 outline-none resize-none" />
+            <MentionInput
+              value={message}
+              onChange={setMessage}
+              employees={employees}
+              rows={3}
+              placeholder="Why are you recognizing this person? Type @ to mention someone"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-yellow-500 outline-none resize-none"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tags * <span className="text-xs text-gray-400">(select at least one)</span></label>
@@ -246,7 +375,7 @@ export default function Recognition() {
                 )}
               </div>
 
-              <p className="text-sm text-gray-700 dark:text-gray-300 mb-3 leading-relaxed">{rec.message}</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 mb-3 leading-relaxed whitespace-pre-wrap">{renderWithMentions(rec.message)}</p>
 
               <div className="flex flex-wrap gap-1.5 mb-3">
                 {(rec.tags || []).map(tag => (

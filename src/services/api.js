@@ -447,6 +447,26 @@ export async function deleteReplyApi(feedbackId, replyId, username) {
   return res.json();
 }
 
+export async function toggleReplyLikeApi(feedbackId, replyId, username) {
+  const res = await fetch(`${API_URL}/feedback/${feedbackId}/reply/${replyId}/like`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+  if (!res.ok) throw new Error('Failed to toggle reply like');
+  return res.json();
+}
+
+export async function notifyMentionsApi({ mentionedBy, context, feedbackTitle, messageText }) {
+  const res = await fetch(`${API_URL}/feedback/notify-mentions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mentionedBy, context, feedbackTitle, messageText }),
+  });
+  if (!res.ok) throw new Error('Failed to notify mentions');
+  return res.json();
+}
+
 // ── Daily Task Tracker ────────────────────────────────────
 export async function fetchDailyLog(username, date) {
   const res = await fetch(`${API_URL}/tasks/daily?username=${encodeURIComponent(username)}&date=${date}`);

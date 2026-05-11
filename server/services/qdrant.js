@@ -713,6 +713,23 @@ async function deleteReply(feedbackId, replyId, username) {
   return { deleted: true };
 }
 
+async function toggleReplyLike(feedbackId, replyId, username) {
+  const existing = await client.retrieve(FEEDBACK_COLLECTION, { ids: [Number(feedbackId)], with_payload: true });
+  if (!existing.length) throw new Error('Feedback not found');
+  const payload = existing[0].payload;
+  const reply = (payload.replies || []).find(r => r.id === replyId);
+  if (!reply) throw new Error('Reply not found');
+  const likes = reply.likes || [];
+  const idx = likes.indexOf(username);
+  if (idx >= 0) likes.splice(idx, 1); else likes.push(username);
+  reply.likes = likes;
+  await client.upsert(FEEDBACK_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(feedbackId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { liked: idx < 0, count: likes.length };
+}
+
 // ── Daily Task Tracker ──────────────────────────────────
 // Each daily log is keyed by username + date (YYYY-MM-DD) as a unique numeric ID
 function dateToId(username, date) {
@@ -1133,6 +1150,7 @@ module.exports = {
   toggleFeedbackLike,
   deleteFeedback,
   deleteReply,
+  toggleReplyLike,
   saveDailyLog,
   getDailyLog,
   getUserTaskLogs,
