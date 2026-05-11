@@ -194,13 +194,13 @@ export default function QuickLinks() {
           {filtered.map(link => (
             <div
               key={link.id}
-              className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition group"
+              className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition group flex flex-col h-full"
             >
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 flex-1">
                 <img
                   src={getFavicon(link.url)}
                   alt=""
-                  className="w-8 h-8 rounded mt-0.5 bg-gray-100 dark:bg-gray-700"
+                  className="w-8 h-8 rounded mt-0.5 bg-gray-100 dark:bg-gray-700 flex-shrink-0"
                   onError={e => { e.target.style.display = 'none'; }}
                 />
                 <div className="flex-1 min-w-0">

@@ -20,6 +20,8 @@ const LEAVE_STATUS_COLLECTION = 'leave_status';
 const ANNOUNCEMENTS_COLLECTION = 'announcements';
 const BOOKINGS_COLLECTION = 'bookings';
 const QUICKLINKS_COLLECTION = 'quicklinks';
+const STANDUP_PAGES_COLLECTION = 'standup_pages';
+const STANDUP_ENTRIES_COLLECTION = 'standup_entries';
 const VECTOR_SIZE = 768;
 
 const client = new QdrantClient({ url: 'http://localhost:6333', checkCompatibility: false });
@@ -189,6 +191,26 @@ async function ensureCollection() {
       vectors: { size: 4, distance: 'Cosine' },
     });
     console.log(`Created Qdrant collection: ${QUICKLINKS_COLLECTION}`);
+  }
+
+  // Standup Pages collection
+  try {
+    await client.getCollection(STANDUP_PAGES_COLLECTION);
+  } catch {
+    await client.createCollection(STANDUP_PAGES_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${STANDUP_PAGES_COLLECTION}`);
+  }
+
+  // Standup Entries collection
+  try {
+    await client.getCollection(STANDUP_ENTRIES_COLLECTION);
+  } catch {
+    await client.createCollection(STANDUP_ENTRIES_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${STANDUP_ENTRIES_COLLECTION}`);
   }
 }
 
@@ -1435,6 +1457,117 @@ async function deleteQuickLink(linkId) {
   return { deleted: true };
 }
 
+// ── Standup Notes / Daily Scrum ─────────────────────────────────
+async function createStandupPage({ name, description, createdBy, displayName, members }) {
+  const id = Date.now();
+  const payload = {
+    id, name,
+    description: description || '',
+    createdBy, displayName,
+    members: members || [createdBy],
+    createdAt: new Date().toISOString(),
+  };
+  await client.upsert(STANDUP_PAGES_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+async function getAllStandupPages() {
+  const result = await client.scroll(STANDUP_PAGES_COLLECTION, { limit: 5000, with_payload: true });
+  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+async function getStandupPage(pageId) {
+  const existing = await client.retrieve(STANDUP_PAGES_COLLECTION, { ids: [Number(pageId)], with_payload: true });
+  if (!existing.length) throw new Error('Standup page not found');
+  return { id: existing[0].id, ...existing[0].payload };
+}
+
+async function updateStandupPageMembers(pageId, members) {
+  const existing = await client.retrieve(STANDUP_PAGES_COLLECTION, { ids: [Number(pageId)], with_payload: true });
+  if (!existing.length) throw new Error('Standup page not found');
+  const payload = { ...existing[0].payload, members };
+  await client.upsert(STANDUP_PAGES_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(pageId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: Number(pageId), ...payload };
+}
+
+async function deleteStandupPage(pageId) {
+  await client.delete(STANDUP_PAGES_COLLECTION, { wait: true, points: [Number(pageId)] });
+  // Also delete all entries for this page
+  const entries = await client.scroll(STANDUP_ENTRIES_COLLECTION, {
+    limit: 10000, with_payload: true,
+    filter: { must: [{ key: 'pageId', match: { value: Number(pageId) } }] },
+  });
+  const ids = (entries.points || []).map(p => p.id);
+  if (ids.length) await client.delete(STANDUP_ENTRIES_COLLECTION, { wait: true, points: ids });
+  return { deleted: true };
+}
+
+async function addStandupEntry({ pageId, date, username, displayName, yesterday, today, blockers }) {
+  const id = Date.now();
+  const payload = {
+    id, pageId: Number(pageId), date, username, displayName,
+    yesterday: yesterday || '',
+    today: today || '',
+    blockers: blockers || '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    history: [],
+  };
+  await client.upsert(STANDUP_ENTRIES_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+async function getStandupEntries(pageId, date) {
+  const filter = { must: [{ key: 'pageId', match: { value: Number(pageId) } }] };
+  if (date) filter.must.push({ key: 'date', match: { value: date } });
+  const result = await client.scroll(STANDUP_ENTRIES_COLLECTION, {
+    limit: 5000, with_payload: true, filter,
+  });
+  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+async function updateStandupEntry(entryId, { yesterday, today, blockers, username, displayName }) {
+  const existing = await client.retrieve(STANDUP_ENTRIES_COLLECTION, { ids: [Number(entryId)], with_payload: true });
+  if (!existing.length) throw new Error('Entry not found');
+  const oldPayload = existing[0].payload;
+  const historyEntry = {
+    editedBy: username,
+    editedByName: displayName,
+    editedAt: new Date().toISOString(),
+    previous: { yesterday: oldPayload.yesterday, today: oldPayload.today, blockers: oldPayload.blockers },
+  };
+  const history = [...(oldPayload.history || []), historyEntry];
+  const payload = {
+    ...oldPayload,
+    yesterday: yesterday !== undefined ? yesterday : oldPayload.yesterday,
+    today: today !== undefined ? today : oldPayload.today,
+    blockers: blockers !== undefined ? blockers : oldPayload.blockers,
+    updatedAt: new Date().toISOString(),
+    history,
+  };
+  await client.upsert(STANDUP_ENTRIES_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(entryId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: Number(entryId), ...payload };
+}
+
+async function deleteStandupEntry(entryId) {
+  await client.delete(STANDUP_ENTRIES_COLLECTION, { wait: true, points: [Number(entryId)] });
+  return { deleted: true };
+}
+
 module.exports = {
   ensureCollection,
   upsertAsset,
@@ -1521,4 +1654,13 @@ module.exports = {
   getAllQuickLinks,
   updateQuickLink,
   deleteQuickLink,
+  createStandupPage,
+  getAllStandupPages,
+  getStandupPage,
+  updateStandupPageMembers,
+  deleteStandupPage,
+  addStandupEntry,
+  getStandupEntries,
+  updateStandupEntry,
+  deleteStandupEntry,
 };

@@ -28,6 +28,8 @@ const {
   createAnnouncement, getAllAnnouncements, toggleAnnouncementPin, deleteAnnouncement, updateAnnouncement,
   createBooking, getBookingsForDate, getAllBookings, deleteBooking,
   createQuickLink, getAllQuickLinks, updateQuickLink, deleteQuickLink,
+  createStandupPage, getAllStandupPages, getStandupPage, updateStandupPageMembers, deleteStandupPage,
+  addStandupEntry, getStandupEntries, updateStandupEntry, deleteStandupEntry,
 } = require('./services/qdrant');
 const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
@@ -1514,6 +1516,54 @@ app.put('/api/quicklinks/:id', async (req, res) => {
 
 app.delete('/api/quicklinks/:id', async (req, res) => {
   try { res.json(await deleteQuickLink(req.params.id)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// ── Standup Notes / Daily Scrum ──────────────────────────────
+app.get('/api/standups/pages', async (req, res) => {
+  try { res.json(await getAllStandupPages()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/standups/pages/:id', async (req, res) => {
+  try { res.json(await getStandupPage(req.params.id)); }
+  catch (err) { res.status(404).json({ error: err.message }); }
+});
+
+app.post('/api/standups/pages', async (req, res) => {
+  try { res.json(await createStandupPage(req.body)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.put('/api/standups/pages/:id/members', async (req, res) => {
+  try { res.json(await updateStandupPageMembers(req.params.id, req.body.members)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.delete('/api/standups/pages/:id', async (req, res) => {
+  try { res.json(await deleteStandupPage(req.params.id)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.get('/api/standups/pages/:id/entries', async (req, res) => {
+  try { res.json(await getStandupEntries(req.params.id, req.query.date)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/standups/pages/:id/entries', async (req, res) => {
+  try {
+    const data = { ...req.body, pageId: req.params.id };
+    res.json(await addStandupEntry(data));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.put('/api/standups/entries/:id', async (req, res) => {
+  try { res.json(await updateStandupEntry(req.params.id, req.body)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.delete('/api/standups/entries/:id', async (req, res) => {
+  try { res.json(await deleteStandupEntry(req.params.id)); }
   catch (err) { res.status(400).json({ error: err.message }); }
 });
 

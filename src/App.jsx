@@ -31,6 +31,7 @@ import LeaveTracker from './pages/LeaveTracker';
 import Announcements from './pages/Announcements';
 import Bookings from './pages/Bookings';
 import QuickLinks from './pages/QuickLinks';
+import StandupNotes from './pages/StandupNotes';
 
 function AppRoutes() {
   const { user } = useAuth();
@@ -68,6 +69,7 @@ function AppRoutes() {
         <Route path="/announcements" element={<Announcements />} />
         <Route path="/bookings" element={<Bookings />} />
         <Route path="/quicklinks" element={<QuickLinks />} />
+        <Route path="/standups" element={<StandupNotes />} />
       </Route>
     </Routes>
   );

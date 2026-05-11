@@ -862,3 +862,73 @@ export async function deleteQuickLinkApi(id) {
   if (!res.ok) throw new Error('Failed to delete link');
   return res.json();
 }
+
+// ── Standup Notes / Daily Scrum ───────────────────────────
+export async function fetchStandupPages() {
+  const res = await fetch(`${API_URL}/standups/pages`);
+  return res.json();
+}
+
+export async function fetchStandupPage(pageId) {
+  const res = await fetch(`${API_URL}/standups/pages/${pageId}`);
+  if (!res.ok) throw new Error('Page not found');
+  return res.json();
+}
+
+export async function createStandupPageApi(data) {
+  const res = await fetch(`${API_URL}/standups/pages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create standup page');
+  return res.json();
+}
+
+export async function updateStandupMembersApi(pageId, members) {
+  const res = await fetch(`${API_URL}/standups/pages/${pageId}/members`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ members }),
+  });
+  if (!res.ok) throw new Error('Failed to update members');
+  return res.json();
+}
+
+export async function deleteStandupPageApi(pageId) {
+  const res = await fetch(`${API_URL}/standups/pages/${pageId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete page');
+  return res.json();
+}
+
+export async function fetchStandupEntries(pageId, date) {
+  const params = date ? `?date=${date}` : '';
+  const res = await fetch(`${API_URL}/standups/pages/${pageId}/entries${params}`);
+  return res.json();
+}
+
+export async function addStandupEntryApi(pageId, data) {
+  const res = await fetch(`${API_URL}/standups/pages/${pageId}/entries`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to add entry');
+  return res.json();
+}
+
+export async function updateStandupEntryApi(entryId, data) {
+  const res = await fetch(`${API_URL}/standups/entries/${entryId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update entry');
+  return res.json();
+}
+
+export async function deleteStandupEntryApi(entryId) {
+  const res = await fetch(`${API_URL}/standups/entries/${entryId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete entry');
+  return res.json();
+}

@@ -154,11 +154,66 @@ export function AuthProvider({ children }) {
   }, []);
 
   // Local username/password login
+  // First checks hardcoded admin/reviewer accounts, then employee directory
+  const [employeeList, setEmployeeList] = useState([]);
+
+  useEffect(() => {
+    fetch(`http://${window.location.hostname}:3001/api/employees`)
+      .then(r => r.json())
+      .then(data => setEmployeeList(data))
+      .catch(() => {});
+  }, []);
+
   const login = (username, password) => {
+    // Check hardcoded users first (admin, reviewers)
     const found = USERS.find(u => u.username === username && u.password === password);
-    if (!found) return { success: false, error: 'Invalid username or password' };
-    const { password: _, ...safeUser } = found;
-    setUser({ ...safeUser, authMethod: 'local' });
+    if (found) {
+      const { password: _, ...safeUser } = found;
+      setUser({ ...safeUser, authMethod: 'local' });
+      return { success: true };
+    }
+
+    // Check employee directory by email
+    // Username: email (e.g. aarti.patil@eb.com) or firstname.lastname or firstname
+    // Password: firstname + "123"
+    const input = username.toLowerCase().trim();
+    let emp = null;
+
+    // Try email match first
+    emp = employeeList.find(e => e.email && e.email.toLowerCase() === input);
+
+    // Try firstname.lastname match
+    if (!emp && input.includes('.') && !input.includes('@')) {
+      emp = employeeList.find(e => e.name.toLowerCase().replace(/\s+/g, '.') === input);
+    }
+
+    // Try firstname only (if unique)
+    if (!emp && !input.includes('.') && !input.includes('@')) {
+      const matches = employeeList.filter(e => e.name.toLowerCase().split(' ')[0] === input);
+      if (matches.length === 1) {
+        emp = matches[0];
+      } else if (matches.length > 1) {
+        return { success: false, error: `Multiple employees named "${input}". Use your email ID to login.` };
+      }
+    }
+
+    if (!emp) return { success: false, error: 'Invalid username or password' };
+
+    const firstName = emp.name.toLowerCase().split(' ')[0];
+    if (password !== firstName + '123') {
+      return { success: false, error: 'Invalid username or password' };
+    }
+
+    const initials = emp.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+    setUser({
+      username: emp.email ? emp.email.split('@')[0] : emp.name.toLowerCase().replace(/\s+/g, '.'),
+      name: emp.name,
+      initials,
+      email: emp.email || '',
+      role: 'contributor',
+      department: emp.department || '',
+      authMethod: 'local',
+    });
     return { success: true };
   };
 
