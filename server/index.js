@@ -23,6 +23,11 @@ const {
   addEmployee, getAllEmployees, getEmployeeById, updateEmployee, deleteEmployee,
   searchEmployeesBySkill,
   getProfile, saveProfile,
+  createPoll, getAllPolls, votePoll, deletePoll, closePoll,
+  setLeaveStatus, getAllLeaveStatuses, getUserLeaveHistory,
+  createAnnouncement, getAllAnnouncements, toggleAnnouncementPin, deleteAnnouncement, updateAnnouncement,
+  createBooking, getBookingsForDate, getAllBookings, deleteBooking,
+  createQuickLink, getAllQuickLinks, updateQuickLink, deleteQuickLink,
 } = require('./services/qdrant');
 const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
@@ -1374,6 +1379,142 @@ app.put('/api/profile/:username', async (req, res) => {
     console.error('Save profile error:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Polls ──────────────────────────────────────────────
+app.get('/api/polls', async (req, res) => {
+  try { res.json(await getAllPolls()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/polls', async (req, res) => {
+  try {
+    const { username, displayName, question, options, category, endsAt, allowMultiple } = req.body;
+    res.json(await createPoll(username, displayName, { question, options, category, endsAt, allowMultiple }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/polls/:id/vote', async (req, res) => {
+  try {
+    const { username, optionIds } = req.body;
+    res.json(await votePoll(req.params.id, username, optionIds));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.post('/api/polls/:id/close', async (req, res) => {
+  try {
+    const { username } = req.body;
+    res.json(await closePoll(req.params.id, username));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.delete('/api/polls/:id', async (req, res) => {
+  try {
+    const username = req.query.user;
+    res.json(await deletePoll(req.params.id, username));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// ── Leave / WFH Tracker ────────────────────────────────────
+app.get('/api/leave-status', async (req, res) => {
+  try {
+    const { date } = req.query;
+    res.json(await getAllLeaveStatuses(date || null));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/leave-status/:username/history', async (req, res) => {
+  try {
+    res.json(await getUserLeaveHistory(req.params.username));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/leave-status', async (req, res) => {
+  try {
+    const { username, displayName, status, date, note } = req.body;
+    res.json(await setLeaveStatus(username, displayName, { status, date, note }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Announcements Board ────────────────────────────────────
+app.get('/api/announcements', async (req, res) => {
+  try { res.json(await getAllAnnouncements()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/announcements', async (req, res) => {
+  try {
+    const { username, displayName, title, content, priority, pinned } = req.body;
+    res.json(await createAnnouncement(username, displayName, { title, content, priority, pinned }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/announcements/:id/pin', async (req, res) => {
+  try {
+    const { username, role } = req.body;
+    res.json(await toggleAnnouncementPin(req.params.id, username, role));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.delete('/api/announcements/:id', async (req, res) => {
+  try {
+    const username = req.query.user;
+    const role = req.query.role;
+    res.json(await deleteAnnouncement(req.params.id, username, role));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.put('/api/announcements/:id', async (req, res) => {
+  try {
+    const { username, role, title, content, priority } = req.body;
+    res.json(await updateAnnouncement(req.params.id, username, role, { title, content, priority }));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// ── Booking System ────────────────────────────────────────
+app.get('/api/bookings', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (date) res.json(await getBookingsForDate(date));
+    else res.json(await getAllBookings());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/bookings', async (req, res) => {
+  try {
+    const { username, displayName, resource, resourceType, date, startTime, endTime, title, notes } = req.body;
+    res.json(await createBooking(username, displayName, { resource, resourceType, date, startTime, endTime, title, notes }));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.delete('/api/bookings/:id', async (req, res) => {
+  try {
+    const username = req.query.user;
+    res.json(await deleteBooking(req.params.id, username));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// ── Quick Links / Bookmarks ──────────────────────────────
+app.get('/api/quicklinks', async (req, res) => {
+  try { res.json(await getAllQuickLinks()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/quicklinks', async (req, res) => {
+  try {
+    const { url, title, description, category, tags, username, displayName } = req.body;
+    res.json(await createQuickLink({ url, title, description, category, tags, username, displayName }));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.put('/api/quicklinks/:id', async (req, res) => {
+  try { res.json(await updateQuickLink(req.params.id, req.body)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.delete('/api/quicklinks/:id', async (req, res) => {
+  try { res.json(await deleteQuickLink(req.params.id)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 // ── Final Server Start ──────────────────────────────────

@@ -26,6 +26,11 @@ import Recognition from './pages/Recognition';
 import JobBoard from './pages/JobBoard';
 import EmployeeDirectory from './pages/EmployeeDirectory';
 import AskExpert from './pages/AskExpert';
+import Polls from './pages/Polls';
+import LeaveTracker from './pages/LeaveTracker';
+import Announcements from './pages/Announcements';
+import Bookings from './pages/Bookings';
+import QuickLinks from './pages/QuickLinks';
 
 function AppRoutes() {
   const { user } = useAuth();
@@ -58,6 +63,11 @@ function AppRoutes() {
         <Route path="/jobs" element={<JobBoard />} />
         <Route path="/directory" element={<EmployeeDirectory />} />
         <Route path="/ask-expert" element={<AskExpert />} />
+        <Route path="/polls" element={<Polls />} />
+        <Route path="/leave" element={<LeaveTracker />} />
+        <Route path="/announcements" element={<Announcements />} />
+        <Route path="/bookings" element={<Bookings />} />
+        <Route path="/quicklinks" element={<QuickLinks />} />
       </Route>
     </Routes>
   );

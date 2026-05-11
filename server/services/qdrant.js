@@ -15,6 +15,11 @@ const RECOGNITION_COLLECTION = 'recognitions';
 const JOBS_COLLECTION = 'internal_jobs';
 const EMPLOYEES_COLLECTION = 'employees';
 const PROFILES_COLLECTION = 'user_profiles';
+const POLLS_COLLECTION = 'polls';
+const LEAVE_STATUS_COLLECTION = 'leave_status';
+const ANNOUNCEMENTS_COLLECTION = 'announcements';
+const BOOKINGS_COLLECTION = 'bookings';
+const QUICKLINKS_COLLECTION = 'quicklinks';
 const VECTOR_SIZE = 768;
 
 const client = new QdrantClient({ url: 'http://localhost:6333', checkCompatibility: false });
@@ -135,6 +140,55 @@ async function ensureCollection() {
       vectors: { size: 4, distance: 'Cosine' },
     });
     console.log(`Created Qdrant collection: ${PROFILES_COLLECTION}`);
+  }
+  // Polls collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(POLLS_COLLECTION);
+  } catch {
+    await client.createCollection(POLLS_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${POLLS_COLLECTION}`);
+  }
+
+  // Leave Status collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(LEAVE_STATUS_COLLECTION);
+  } catch {
+    await client.createCollection(LEAVE_STATUS_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${LEAVE_STATUS_COLLECTION}`);
+  }
+
+  // Announcements collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(ANNOUNCEMENTS_COLLECTION);
+  } catch {
+    await client.createCollection(ANNOUNCEMENTS_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${ANNOUNCEMENTS_COLLECTION}`);
+  }
+
+  // Bookings collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(BOOKINGS_COLLECTION);
+  } catch {
+    await client.createCollection(BOOKINGS_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${BOOKINGS_COLLECTION}`);
+  }
+
+  // Quick Links collection (dummy vector, payload-only)
+  try {
+    await client.getCollection(QUICKLINKS_COLLECTION);
+  } catch {
+    await client.createCollection(QUICKLINKS_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${QUICKLINKS_COLLECTION}`);
   }
 }
 
@@ -1113,6 +1167,274 @@ async function searchEmployeesBySkill(skill, minRating = 1) {
   return results;
 }
 
+// ── Polls & Surveys ──────────────────────────────────
+async function createPoll(username, displayName, { question, options, category, endsAt, allowMultiple }) {
+  const id = Date.now();
+  const payload = {
+    id, username, displayName,
+    question, category: category || 'general',
+    options: (options || []).map((text, idx) => ({ id: idx, text, votes: [] })),
+    allowMultiple: !!allowMultiple,
+    endsAt: endsAt || null,
+    closed: false,
+    createdAt: new Date().toISOString(),
+  };
+  await client.upsert(POLLS_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+async function getAllPolls() {
+  const result = await client.scroll(POLLS_COLLECTION, { limit: 5000, with_payload: true });
+  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+async function votePoll(pollId, username, optionIds) {
+  const existing = await client.retrieve(POLLS_COLLECTION, { ids: [Number(pollId)], with_payload: true });
+  if (!existing.length) throw new Error('Poll not found');
+  const payload = existing[0].payload;
+  if (payload.closed) throw new Error('Poll is closed');
+  if (payload.endsAt && new Date(payload.endsAt) < new Date()) throw new Error('Poll has ended');
+
+  // Remove previous votes by this user
+  for (const opt of payload.options) {
+    opt.votes = (opt.votes || []).filter(v => v !== username);
+  }
+  // Add new votes
+  for (const optId of optionIds) {
+    const opt = payload.options.find(o => o.id === optId);
+    if (opt) opt.votes.push(username);
+  }
+  await client.upsert(POLLS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(pollId), vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+async function closePoll(pollId, username) {
+  const existing = await client.retrieve(POLLS_COLLECTION, { ids: [Number(pollId)], with_payload: true });
+  if (!existing.length) throw new Error('Poll not found');
+  const payload = existing[0].payload;
+  if (payload.username !== username) throw new Error('Not authorized');
+  payload.closed = true;
+  await client.upsert(POLLS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(pollId), vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+async function deletePoll(pollId, username) {
+  const existing = await client.retrieve(POLLS_COLLECTION, { ids: [Number(pollId)], with_payload: true });
+  if (!existing.length) throw new Error('Poll not found');
+  if (existing[0].payload.username !== username) throw new Error('Not authorized');
+  await client.delete(POLLS_COLLECTION, { wait: true, points: [Number(pollId)] });
+  return { deleted: true };
+}
+
+// ── Leave / WFH Tracker ──────────────────────────────────
+async function setLeaveStatus(username, displayName, { status, date, note }) {
+  // Use a stable numeric ID per user+date combo so updates overwrite
+  const key = `${username}_${date}`;
+  let id = 0;
+  for (let i = 0; i < key.length; i++) id = ((id << 5) - id + key.charCodeAt(i)) | 0;
+  id = Math.abs(id);
+  const payload = {
+    id, username, displayName,
+    status, // 'in-office' | 'wfh' | 'leave' | 'half-day'
+    date,
+    note: note || '',
+    updatedAt: new Date().toISOString(),
+  };
+  await client.upsert(LEAVE_STATUS_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+async function getAllLeaveStatuses(date) {
+  const result = await client.scroll(LEAVE_STATUS_COLLECTION, { limit: 5000, with_payload: true });
+  let statuses = (result.points || []).map(p => ({ id: p.id, ...p.payload }));
+  if (date) {
+    statuses = statuses.filter(s => s.date === date);
+  }
+  return statuses.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+}
+
+async function getUserLeaveHistory(username) {
+  const result = await client.scroll(LEAVE_STATUS_COLLECTION, {
+    limit: 5000, with_payload: true,
+    filter: { must: [{ key: 'username', match: { value: username } }] },
+  });
+  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+// ── Announcements Board ──────────────────────────────────
+async function createAnnouncement(username, displayName, { title, content, priority, pinned }) {
+  const id = Date.now();
+  const payload = {
+    id, username, displayName,
+    title, content,
+    priority: priority || 'info', // 'urgent' | 'info' | 'event'
+    pinned: !!pinned,
+    createdAt: new Date().toISOString(),
+  };
+  await client.upsert(ANNOUNCEMENTS_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+async function getAllAnnouncements() {
+  const result = await client.scroll(ANNOUNCEMENTS_COLLECTION, { limit: 5000, with_payload: true });
+  const items = (result.points || []).map(p => ({ id: p.id, ...p.payload }));
+  // Pinned first, then by date descending
+  return items.sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
+}
+
+async function toggleAnnouncementPin(announcementId, username, role) {
+  const existing = await client.retrieve(ANNOUNCEMENTS_COLLECTION, { ids: [Number(announcementId)], with_payload: true });
+  if (!existing.length) throw new Error('Announcement not found');
+  const payload = existing[0].payload;
+  if (payload.username !== username && role !== 'admin') throw new Error('Not authorized');
+  payload.pinned = !payload.pinned;
+  await client.upsert(ANNOUNCEMENTS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(announcementId), vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+async function deleteAnnouncement(announcementId, username, role) {
+  const existing = await client.retrieve(ANNOUNCEMENTS_COLLECTION, { ids: [Number(announcementId)], with_payload: true });
+  if (!existing.length) throw new Error('Announcement not found');
+  if (existing[0].payload.username !== username && role !== 'admin') throw new Error('Not authorized');
+  await client.delete(ANNOUNCEMENTS_COLLECTION, { wait: true, points: [Number(announcementId)] });
+  return { deleted: true };
+}
+
+async function updateAnnouncement(announcementId, username, role, { title, content, priority }) {
+  const existing = await client.retrieve(ANNOUNCEMENTS_COLLECTION, { ids: [Number(announcementId)], with_payload: true });
+  if (!existing.length) throw new Error('Announcement not found');
+  const payload = existing[0].payload;
+  if (payload.username !== username && role !== 'admin') throw new Error('Not authorized');
+  if (title !== undefined) payload.title = title;
+  if (content !== undefined) payload.content = content;
+  if (priority !== undefined) payload.priority = priority;
+  payload.editedAt = new Date().toISOString();
+  await client.upsert(ANNOUNCEMENTS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(announcementId), vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+// ── Booking System ──────────────────────────────────────
+async function createBooking(username, displayName, { resource, resourceType, date, startTime, endTime, title, notes }) {
+  // Check for conflicts
+  const existing = await getBookingsForDate(date);
+  const conflict = existing.find(b =>
+    b.resource === resource &&
+    b.id !== undefined &&
+    ((startTime >= b.startTime && startTime < b.endTime) ||
+     (endTime > b.startTime && endTime <= b.endTime) ||
+     (startTime <= b.startTime && endTime >= b.endTime))
+  );
+  if (conflict) throw new Error(`Conflict: ${resource} is already booked by ${conflict.displayName} from ${conflict.startTime} to ${conflict.endTime}`);
+
+  const id = Date.now();
+  const payload = {
+    id, username, displayName,
+    resource, resourceType, // 'room' | 'desk' | 'equipment'
+    date, startTime, endTime,
+    title: title || '',
+    notes: notes || '',
+    createdAt: new Date().toISOString(),
+  };
+  await client.upsert(BOOKINGS_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+async function getBookingsForDate(date) {
+  const result = await client.scroll(BOOKINGS_COLLECTION, {
+    limit: 5000, with_payload: true,
+    filter: { must: [{ key: 'date', match: { value: date } }] },
+  });
+  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+}
+
+async function getAllBookings() {
+  const result = await client.scroll(BOOKINGS_COLLECTION, { limit: 5000, with_payload: true });
+  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
+    .sort((a, b) => {
+      const dc = a.date.localeCompare(b.date);
+      return dc !== 0 ? dc : a.startTime.localeCompare(b.startTime);
+    });
+}
+
+async function deleteBooking(bookingId, username) {
+  const existing = await client.retrieve(BOOKINGS_COLLECTION, { ids: [Number(bookingId)], with_payload: true });
+  if (!existing.length) throw new Error('Booking not found');
+  if (existing[0].payload.username !== username) throw new Error('Not authorized');
+  await client.delete(BOOKINGS_COLLECTION, { wait: true, points: [Number(bookingId)] });
+  return { deleted: true };
+}
+
+// ── Quick Links / Bookmarks ───────────────────────────────
+async function createQuickLink({ url, title, description, category, tags, username, displayName }) {
+  const id = Date.now();
+  const payload = {
+    id, url, title,
+    description: description || '',
+    category: category || 'Other',
+    tags: tags || [],
+    username, displayName,
+    createdAt: new Date().toISOString(),
+  };
+  await client.upsert(QUICKLINKS_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+async function getAllQuickLinks() {
+  const result = await client.scroll(QUICKLINKS_COLLECTION, { limit: 5000, with_payload: true });
+  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+async function updateQuickLink(linkId, updates) {
+  const existing = await client.retrieve(QUICKLINKS_COLLECTION, { ids: [Number(linkId)], with_payload: true });
+  if (!existing.length) throw new Error('Link not found');
+  const payload = { ...existing[0].payload, ...updates };
+  await client.upsert(QUICKLINKS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(linkId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: Number(linkId), ...payload };
+}
+
+async function deleteQuickLink(linkId) {
+  await client.delete(QUICKLINKS_COLLECTION, { wait: true, points: [Number(linkId)] });
+  return { deleted: true };
+}
+
 module.exports = {
   ensureCollection,
   upsertAsset,
@@ -1178,4 +1500,25 @@ module.exports = {
   searchEmployeesBySkill,
   getProfile,
   saveProfile,
+  createPoll,
+  getAllPolls,
+  votePoll,
+  deletePoll,
+  closePoll,
+  setLeaveStatus,
+  getAllLeaveStatuses,
+  getUserLeaveHistory,
+  createAnnouncement,
+  getAllAnnouncements,
+  toggleAnnouncementPin,
+  deleteAnnouncement,
+  updateAnnouncement,
+  createBooking,
+  getBookingsForDate,
+  getAllBookings,
+  deleteBooking,
+  createQuickLink,
+  getAllQuickLinks,
+  updateQuickLink,
+  deleteQuickLink,
 };

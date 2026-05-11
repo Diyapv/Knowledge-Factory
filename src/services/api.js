@@ -686,3 +686,179 @@ export async function saveProfileApi(username, data) {
   if (!res.ok) throw new Error('Failed to save profile');
   return res.json();
 }
+
+// ── Polls ──────────────────────────────────────────────
+export async function fetchPolls() {
+  const res = await fetch(`${API_URL}/polls`);
+  return res.json();
+}
+
+export async function createPollApi(data) {
+  const res = await fetch(`${API_URL}/polls`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create poll');
+  return res.json();
+}
+
+export async function votePollApi(id, username, optionIds) {
+  const res = await fetch(`${API_URL}/polls/${id}/vote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, optionIds }),
+  });
+  if (!res.ok) throw new Error('Failed to vote');
+  return res.json();
+}
+
+export async function closePollApi(id, username) {
+  const res = await fetch(`${API_URL}/polls/${id}/close`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+  if (!res.ok) throw new Error('Failed to close poll');
+  return res.json();
+}
+
+export async function deletePollApi(id) {
+  const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
+  const username = currentUser.name || currentUser.username || '';
+  const res = await fetch(`${API_URL}/polls/${id}?user=${encodeURIComponent(username)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete poll');
+  return res.json();
+}
+
+// ── Leave / WFH Tracker ────────────────────────────────────
+export async function fetchLeaveStatuses(date) {
+  const params = date ? `?date=${date}` : '';
+  const res = await fetch(`${API_URL}/leave-status${params}`);
+  return res.json();
+}
+
+export async function setLeaveStatusApi(data) {
+  const res = await fetch(`${API_URL}/leave-status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update status');
+  return res.json();
+}
+
+export async function fetchLeaveHistory(username) {
+  const res = await fetch(`${API_URL}/leave-status/${encodeURIComponent(username)}/history`);
+  return res.json();
+}
+
+// ── Announcements ────────────────────────────────────
+export async function fetchAnnouncements() {
+  const res = await fetch(`${API_URL}/announcements`);
+  return res.json();
+}
+
+export async function createAnnouncementApi(data) {
+  const res = await fetch(`${API_URL}/announcements`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create announcement');
+  return res.json();
+}
+
+export async function togglePinApi(id, username) {
+  const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
+  const role = currentUser.role || '';
+  const res = await fetch(`${API_URL}/announcements/${id}/pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, role }),
+  });
+  if (!res.ok) throw new Error('Failed to toggle pin');
+  return res.json();
+}
+
+export async function deleteAnnouncementApi(id) {
+  const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
+  const username = currentUser.name || currentUser.username || '';
+  const role = currentUser.role || '';
+  const res = await fetch(`${API_URL}/announcements/${id}?user=${encodeURIComponent(username)}&role=${encodeURIComponent(role)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete announcement');
+  return res.json();
+}
+
+export async function updateAnnouncementApi(id, data) {
+  const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
+  const username = currentUser.name || currentUser.username || '';
+  const role = currentUser.role || '';
+  const res = await fetch(`${API_URL}/announcements/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, role, ...data }),
+  });
+  if (!res.ok) throw new Error('Failed to update announcement');
+  return res.json();
+}
+
+// ── Bookings ──────────────────────────────────────────────
+export async function fetchBookings(date) {
+  const params = date ? `?date=${date}` : '';
+  const res = await fetch(`${API_URL}/bookings${params}`);
+  return res.json();
+}
+
+export async function createBookingApi(data) {
+  const res = await fetch(`${API_URL}/bookings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to create booking');
+  }
+  return res.json();
+}
+
+export async function deleteBookingApi(id) {
+  const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
+  const username = currentUser.name || currentUser.username || '';
+  const res = await fetch(`${API_URL}/bookings/${id}?user=${encodeURIComponent(username)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete booking');
+  return res.json();
+}
+
+// ── Quick Links / Bookmarks ───────────────────────────────
+export async function fetchQuickLinks() {
+  const res = await fetch(`${API_URL}/quicklinks`);
+  return res.json();
+}
+
+export async function createQuickLinkApi(data) {
+  const res = await fetch(`${API_URL}/quicklinks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create link');
+  return res.json();
+}
+
+export async function updateQuickLinkApi(id, data) {
+  const res = await fetch(`${API_URL}/quicklinks/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update link');
+  return res.json();
+}
+
+export async function deleteQuickLinkApi(id) {
+  const res = await fetch(`${API_URL}/quicklinks/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete link');
+  return res.json();
+}
