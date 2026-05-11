@@ -22,6 +22,7 @@ const BOOKINGS_COLLECTION = 'bookings';
 const QUICKLINKS_COLLECTION = 'quicklinks';
 const STANDUP_PAGES_COLLECTION = 'standup_pages';
 const STANDUP_ENTRIES_COLLECTION = 'standup_entries';
+const MEETINGS_COLLECTION = 'meetings';
 const VECTOR_SIZE = 768;
 
 const client = new QdrantClient({ url: 'http://localhost:6333', checkCompatibility: false });
@@ -211,6 +212,16 @@ async function ensureCollection() {
       vectors: { size: 4, distance: 'Cosine' },
     });
     console.log(`Created Qdrant collection: ${STANDUP_ENTRIES_COLLECTION}`);
+  }
+
+  // Meetings collection
+  try {
+    await client.getCollection(MEETINGS_COLLECTION);
+  } catch {
+    await client.createCollection(MEETINGS_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${MEETINGS_COLLECTION}`);
   }
 }
 
@@ -1568,6 +1579,98 @@ async function deleteStandupEntry(entryId) {
   return { deleted: true };
 }
 
+// ── Meeting Minutes ─────────────────────────────────────────────
+async function createMeeting({ title, date, time, attendees, notes, createdBy, displayName }) {
+  const id = Date.now();
+  const payload = {
+    id, title,
+    date: date || new Date().toISOString().split('T')[0],
+    time: time || '',
+    attendees: attendees || [],
+    notes: notes || '',
+    actionItems: [],
+    createdBy, displayName,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await client.upsert(MEETINGS_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return payload;
+}
+
+async function getAllMeetings() {
+  const result = await client.scroll(MEETINGS_COLLECTION, { limit: 5000, with_payload: true });
+  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+async function getMeeting(meetingId) {
+  const existing = await client.retrieve(MEETINGS_COLLECTION, { ids: [Number(meetingId)], with_payload: true });
+  if (!existing.length) throw new Error('Meeting not found');
+  return { id: existing[0].id, ...existing[0].payload };
+}
+
+async function updateMeeting(meetingId, updates) {
+  const existing = await client.retrieve(MEETINGS_COLLECTION, { ids: [Number(meetingId)], with_payload: true });
+  if (!existing.length) throw new Error('Meeting not found');
+  const payload = { ...existing[0].payload, ...updates, updatedAt: new Date().toISOString() };
+  await client.upsert(MEETINGS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(meetingId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: Number(meetingId), ...payload };
+}
+
+async function deleteMeeting(meetingId) {
+  await client.delete(MEETINGS_COLLECTION, { wait: true, points: [Number(meetingId)] });
+  return { deleted: true };
+}
+
+async function addActionItem(meetingId, { title, assignee, dueDate, status }) {
+  const existing = await client.retrieve(MEETINGS_COLLECTION, { ids: [Number(meetingId)], with_payload: true });
+  if (!existing.length) throw new Error('Meeting not found');
+  const payload = existing[0].payload;
+  const actionId = Date.now();
+  const action = { id: actionId, title, assignee: assignee || '', dueDate: dueDate || '', status: status || 'pending', createdAt: new Date().toISOString() };
+  payload.actionItems = [...(payload.actionItems || []), action];
+  payload.updatedAt = new Date().toISOString();
+  await client.upsert(MEETINGS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(meetingId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: Number(meetingId), ...payload };
+}
+
+async function updateActionItem(meetingId, actionId, updates) {
+  const existing = await client.retrieve(MEETINGS_COLLECTION, { ids: [Number(meetingId)], with_payload: true });
+  if (!existing.length) throw new Error('Meeting not found');
+  const payload = existing[0].payload;
+  payload.actionItems = (payload.actionItems || []).map(a =>
+    a.id === Number(actionId) ? { ...a, ...updates } : a
+  );
+  payload.updatedAt = new Date().toISOString();
+  await client.upsert(MEETINGS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(meetingId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: Number(meetingId), ...payload };
+}
+
+async function deleteActionItem(meetingId, actionId) {
+  const existing = await client.retrieve(MEETINGS_COLLECTION, { ids: [Number(meetingId)], with_payload: true });
+  if (!existing.length) throw new Error('Meeting not found');
+  const payload = existing[0].payload;
+  payload.actionItems = (payload.actionItems || []).filter(a => a.id !== Number(actionId));
+  payload.updatedAt = new Date().toISOString();
+  await client.upsert(MEETINGS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(meetingId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: Number(meetingId), ...payload };
+}
+
 module.exports = {
   ensureCollection,
   upsertAsset,
@@ -1663,4 +1766,12 @@ module.exports = {
   getStandupEntries,
   updateStandupEntry,
   deleteStandupEntry,
+  createMeeting,
+  getAllMeetings,
+  getMeeting,
+  updateMeeting,
+  deleteMeeting,
+  addActionItem,
+  updateActionItem,
+  deleteActionItem,
 };

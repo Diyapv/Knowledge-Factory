@@ -932,3 +932,67 @@ export async function deleteStandupEntryApi(entryId) {
   if (!res.ok) throw new Error('Failed to delete entry');
   return res.json();
 }
+
+// ── Meeting Minutes ───────────────────────────────────────
+export async function fetchMeetings() {
+  const res = await fetch(`${API_URL}/meetings`);
+  return res.json();
+}
+
+export async function fetchMeeting(id) {
+  const res = await fetch(`${API_URL}/meetings/${id}`);
+  if (!res.ok) throw new Error('Meeting not found');
+  return res.json();
+}
+
+export async function createMeetingApi(data) {
+  const res = await fetch(`${API_URL}/meetings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create meeting');
+  return res.json();
+}
+
+export async function updateMeetingApi(id, data) {
+  const res = await fetch(`${API_URL}/meetings/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update meeting');
+  return res.json();
+}
+
+export async function deleteMeetingApi(id) {
+  const res = await fetch(`${API_URL}/meetings/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete meeting');
+  return res.json();
+}
+
+export async function addActionItemApi(meetingId, data) {
+  const res = await fetch(`${API_URL}/meetings/${meetingId}/actions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to add action item');
+  return res.json();
+}
+
+export async function updateActionItemApi(meetingId, actionId, data) {
+  const res = await fetch(`${API_URL}/meetings/${meetingId}/actions/${actionId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update action');
+  return res.json();
+}
+
+export async function deleteActionItemApi(meetingId, actionId) {
+  const res = await fetch(`${API_URL}/meetings/${meetingId}/actions/${actionId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete action');
+  return res.json();
+}

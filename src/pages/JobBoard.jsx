@@ -21,7 +21,7 @@ const APPLICANT_STATUS_STYLE = {
 };
 
 export default function JobBoard() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -117,7 +117,7 @@ export default function JobBoard() {
   };
 
   const hasApplied = (job) => (job.applicants || []).some(a => a.username === user.username);
-  const isOwner = (job) => job.postedBy === user.username || user.role === 'admin';
+  const isOwner = (job) => isAdmin;
 
   return (
     <div className="space-y-6">
@@ -129,10 +129,10 @@ export default function JobBoard() {
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Explore internal opportunities and grow your career</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)}
+        {isAdmin && <button onClick={() => setShowForm(!showForm)}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors">
           <Plus size={18} /> Post Opportunity
-        </button>
+        </button>}
       </div>
 
       {/* Stats */}

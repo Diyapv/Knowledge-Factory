@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
@@ -32,9 +32,10 @@ import Announcements from './pages/Announcements';
 import Bookings from './pages/Bookings';
 import QuickLinks from './pages/QuickLinks';
 import StandupNotes from './pages/StandupNotes';
+import MeetingMinutes from './pages/MeetingMinutes';
 
 function AppRoutes() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
 
   if (!user) return <Login />;
 
@@ -50,11 +51,11 @@ function AppRoutes() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/review" element={<Review />} />
         <Route path="/approvals" element={<Approvals />} />
-        <Route path="/drafts" element={<Drafts />} />
+        <Route path="/drafts" element={!isAdmin ? <Drafts /> : <Navigate to="/" replace />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/activity" element={<ActivityLog />} />
         <Route path="/favorites" element={<Favorites />} />
-        <Route path="/knowledge" element={<KnowledgeManager />} />
+        <Route path="/knowledge" element={isAdmin ? <KnowledgeManager /> : <Navigate to="/" replace />} />
         <Route path="/notes" element={<PersonalNotes />} />
         <Route path="/resume" element={<ResumeBuilder />} />
         <Route path="/feedback" element={<Feedback />} />
@@ -70,6 +71,7 @@ function AppRoutes() {
         <Route path="/bookings" element={<Bookings />} />
         <Route path="/quicklinks" element={<QuickLinks />} />
         <Route path="/standups" element={<StandupNotes />} />
+        <Route path="/meetings" element={<MeetingMinutes />} />
       </Route>
     </Routes>
   );

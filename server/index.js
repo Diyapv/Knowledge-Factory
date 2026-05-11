@@ -30,6 +30,8 @@ const {
   createQuickLink, getAllQuickLinks, updateQuickLink, deleteQuickLink,
   createStandupPage, getAllStandupPages, getStandupPage, updateStandupPageMembers, deleteStandupPage,
   addStandupEntry, getStandupEntries, updateStandupEntry, deleteStandupEntry,
+  createMeeting, getAllMeetings, getMeeting, updateMeeting, deleteMeeting,
+  addActionItem, updateActionItem, deleteActionItem,
 } = require('./services/qdrant');
 const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
@@ -1564,6 +1566,47 @@ app.put('/api/standups/entries/:id', async (req, res) => {
 
 app.delete('/api/standups/entries/:id', async (req, res) => {
   try { res.json(await deleteStandupEntry(req.params.id)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// ── Meeting Minutes ────────────────────────────────────
+app.get('/api/meetings', async (req, res) => {
+  try { res.json(await getAllMeetings()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/meetings/:id', async (req, res) => {
+  try { res.json(await getMeeting(req.params.id)); }
+  catch (err) { res.status(404).json({ error: err.message }); }
+});
+
+app.post('/api/meetings', async (req, res) => {
+  try { res.json(await createMeeting(req.body)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.put('/api/meetings/:id', async (req, res) => {
+  try { res.json(await updateMeeting(req.params.id, req.body)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.delete('/api/meetings/:id', async (req, res) => {
+  try { res.json(await deleteMeeting(req.params.id)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.post('/api/meetings/:id/actions', async (req, res) => {
+  try { res.json(await addActionItem(req.params.id, req.body)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.put('/api/meetings/:meetingId/actions/:actionId', async (req, res) => {
+  try { res.json(await updateActionItem(req.params.meetingId, req.params.actionId, req.body)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.delete('/api/meetings/:meetingId/actions/:actionId', async (req, res) => {
+  try { res.json(await deleteActionItem(req.params.meetingId, req.params.actionId)); }
   catch (err) { res.status(400).json({ error: err.message }); }
 });
 
