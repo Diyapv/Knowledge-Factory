@@ -8,6 +8,7 @@ import {
   fetchMeetings, createMeetingApi, updateMeetingApi, deleteMeetingApi,
   addActionItemApi, updateActionItemApi, deleteActionItemApi, fetchEmployees
 } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 const STATUS_OPTIONS = [
   { value: 'pending', label: 'Pending', color: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20' },
@@ -16,6 +17,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function MeetingMinutes() {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [meetings, setMeetings] = useState([]);
   const [activeMeeting, setActiveMeeting] = useState(null);
@@ -31,10 +33,10 @@ export default function MeetingMinutes() {
   const [editingAction, setEditingAction] = useState(null);
   const [form, setForm] = useState({ title: '', date: '', time: '', attendees: [], notes: '' });
 
-  const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
+  const currentUser = user || {};
   const username = currentUser.name || currentUser.username || '';
 
-  useEffect(() => { loadMeetings(); loadEmployees(); }, []);
+  useEffect(() => { if (username) loadMeetings(); loadEmployees(); }, [username]);
 
   useEffect(() => {
     const meetingId = searchParams.get('id');

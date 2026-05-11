@@ -15,7 +15,7 @@ const {
   addKBArticle, getAllKBArticles, deleteKBArticle, searchKBArticles,
   addNote, getUserNotes, updateNote, deleteNote,
   saveResume, getUserResumes, getResumeById, deleteResume,
-  createFeedback, getAllFeedback, addReply, toggleFeedbackLike, deleteFeedback, deleteReply, toggleReplyLike,
+  createFeedback, getAllFeedback, addReply, toggleFeedbackLike, deleteFeedback, updateFeedback, deleteReply, toggleReplyLike,
   saveDailyLog, getDailyLog, getUserTaskLogs,
   addDevice, getAllDevices, getDeviceById, updateDevice, deleteDevice,
   createRecognition, getAllRecognitions, toggleRecognitionLike, deleteRecognition,
@@ -30,8 +30,13 @@ const {
   createQuickLink, getAllQuickLinks, updateQuickLink, deleteQuickLink,
   createStandupPage, getAllStandupPages, getStandupPage, updateStandupPageMembers, deleteStandupPage,
   addStandupEntry, getStandupEntries, updateStandupEntry, deleteStandupEntry,
+  addStandupMessage, getStandupMessages, deleteStandupMessage,
   createMeeting, getAllMeetings, getMeeting, updateMeeting, deleteMeeting,
   addActionItem, updateActionItem, deleteActionItem,
+  createWish, getWishesForUser, markWishRead,
+  createIdea, getAllIdeas, upvoteIdea, setIdeaOfTheMonth, updateIdeaStatus, deleteIdea, addIdeaComment,
+  createQuiz, getAllQuizzes, getQuiz, updateQuiz, deleteQuiz, submitQuizAttempt, getQuizLeaderboard,
+  createPhoto, getAllPhotos, deletePhoto, togglePhotoReaction, addPhotoComment,
 } = require('./services/qdrant');
 const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
@@ -941,12 +946,25 @@ app.post('/api/feedback/:id/like', async (req, res) => {
 
 app.delete('/api/feedback/:id', async (req, res) => {
   try {
-    const { username } = req.query;
+    const { username, role } = req.query;
     if (!username) return res.status(400).json({ error: 'username is required' });
-    await deleteFeedback(req.params.id, username);
+    await deleteFeedback(req.params.id, username, role);
     res.json({ deleted: true });
   } catch (err) {
     console.error('Delete feedback error:', err.message);
+    const status = err.message === 'Not authorized' ? 403 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.put('/api/feedback/:id', async (req, res) => {
+  try {
+    const { username, role } = req.query;
+    if (!username) return res.status(400).json({ error: 'username is required' });
+    const updated = await updateFeedback(req.params.id, username, role, req.body);
+    res.json(updated);
+  } catch (err) {
+    console.error('Update feedback error:', err.message);
     const status = err.message === 'Not authorized' ? 403 : 500;
     res.status(status).json({ error: err.message });
   }
@@ -1378,6 +1396,20 @@ app.get('/api/profile/:username', async (req, res) => {
 app.put('/api/profile/:username', async (req, res) => {
   try {
     const saved = await saveProfile(req.params.username, req.body);
+
+    // Sync dateOfBirth to employee record if provided
+    if (req.body.dateOfBirth) {
+      try {
+        const employees = await getAllEmployees();
+        const email = (req.body.email || '').toLowerCase();
+        const emp = employees.find(e =>
+          (e.email && e.email.toLowerCase() === email) ||
+          (e.name && e.name.toLowerCase() === (req.body.fullName || '').toLowerCase())
+        );
+        if (emp) await updateEmployee(emp.id, { dateOfBirth: req.body.dateOfBirth });
+      } catch (syncErr) { console.error('Sync DOB to employee:', syncErr.message); }
+    }
+
     res.json(saved);
   } catch (err) {
     console.error('Save profile error:', err.message);
@@ -1415,7 +1447,8 @@ app.post('/api/polls/:id/close', async (req, res) => {
 app.delete('/api/polls/:id', async (req, res) => {
   try {
     const username = req.query.user;
-    res.json(await deletePoll(req.params.id, username));
+    const role = req.query.role;
+    res.json(await deletePoll(req.params.id, username, role));
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
@@ -1569,6 +1602,24 @@ app.delete('/api/standups/entries/:id', async (req, res) => {
   catch (err) { res.status(400).json({ error: err.message }); }
 });
 
+// Standup Messages
+app.get('/api/standups/pages/:id/messages', async (req, res) => {
+  try { res.json(await getStandupMessages(req.params.id)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/standups/pages/:id/messages', async (req, res) => {
+  try {
+    const data = { ...req.body, pageId: req.params.id };
+    res.json(await addStandupMessage(data));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.delete('/api/standups/messages/:id', async (req, res) => {
+  try { res.json(await deleteStandupMessage(req.params.id)); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
 // ── Meeting Minutes ────────────────────────────────────
 app.get('/api/meetings', async (req, res) => {
   try { res.json(await getAllMeetings()); }
@@ -1608,6 +1659,189 @@ app.put('/api/meetings/:meetingId/actions/:actionId', async (req, res) => {
 app.delete('/api/meetings/:meetingId/actions/:actionId', async (req, res) => {
   try { res.json(await deleteActionItem(req.params.meetingId, req.params.actionId)); }
   catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// ── Celebrations (Birthday & Work Anniversary) ─────────
+app.get('/api/celebrations', async (req, res) => {
+  try {
+    const employees = await getAllEmployees();
+    const today = new Date();
+    const todayMD = String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+
+    const celebrations = [];
+    for (const emp of employees) {
+      if (emp.dateOfBirth) {
+        const [y, m, d] = emp.dateOfBirth.split('-');
+        const md = m + '-' + d;
+        const thisYearBday = new Date(today.getFullYear(), Number(m) - 1, Number(d));
+        const diff = Math.round((thisYearBday - today) / 86400000);
+        celebrations.push({
+          type: 'birthday',
+          name: emp.name,
+          email: emp.email,
+          department: emp.department,
+          designation: emp.designation,
+          date: emp.dateOfBirth,
+          monthDay: md,
+          daysUntil: diff < 0 ? diff + 365 : diff,
+          isToday: md === todayMD,
+          age: today.getFullYear() - Number(y),
+        });
+      }
+      if (emp.joinDate && emp.joinDate.includes('-')) {
+        const [y, m, d] = emp.joinDate.split('-');
+        const md = m + '-' + d;
+        const thisYearAnniv = new Date(today.getFullYear(), Number(m) - 1, Number(d));
+        const diff = Math.round((thisYearAnniv - today) / 86400000);
+        const years = today.getFullYear() - Number(y);
+        if (years > 0) {
+          celebrations.push({
+            type: 'anniversary',
+            name: emp.name,
+            email: emp.email,
+            department: emp.department,
+            designation: emp.designation,
+            date: emp.joinDate,
+            monthDay: md,
+            daysUntil: diff < 0 ? diff + 365 : diff,
+            isToday: md === todayMD,
+            years,
+          });
+        }
+      }
+    }
+    res.json(celebrations);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Send celebration wish (stored in-app)
+app.post('/api/celebrations/send-wishes', async (req, res) => {
+  try {
+    const { name, email, type, message, senderName, senderUsername } = req.body;
+    const wish = await createWish({
+      recipientName: name,
+      recipientEmail: email,
+      type,
+      message,
+      senderName: senderName || 'Someone',
+      senderUsername: senderUsername || '',
+    });
+    console.log(`[WISH] ${senderName} sent ${type} wish to ${name}`);
+    // Send email notification
+    const { sendCelebrationWishEmail } = require('./services/mailer');
+    sendCelebrationWishEmail({ toEmail: email, recipientName: name, senderName: senderName || 'Someone', type, message });
+    res.json({ success: true, wish });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Get wishes for a user
+app.get('/api/celebrations/wishes/:name', async (req, res) => {
+  try { res.json(await getWishesForUser(req.params.name)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Mark wish as read
+app.put('/api/celebrations/wishes/:id/read', async (req, res) => {
+  try { res.json(await markWishRead(req.params.id)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Idea Box / Innovation Board Routes ──────────────────
+app.get('/api/ideas', async (req, res) => {
+  try { res.json(await getAllIdeas()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/ideas', async (req, res) => {
+  try { res.json(await createIdea(req.body)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/ideas/:id/upvote', async (req, res) => {
+  try { res.json(await upvoteIdea(req.params.id, req.body.username)); }
+  catch (err) { res.status(err.message === 'Idea not found' ? 404 : 500).json({ error: err.message }); }
+});
+
+app.post('/api/ideas/:id/idea-of-month', async (req, res) => {
+  try { res.json(await setIdeaOfTheMonth(req.params.id)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/ideas/:id/status', async (req, res) => {
+  try { res.json(await updateIdeaStatus(req.params.id, req.body.status)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/ideas/:id/comments', async (req, res) => {
+  try { res.json(await addIdeaComment(req.params.id, req.body)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/ideas/:id', async (req, res) => {
+  try { await deleteIdea(req.params.id); res.json({ deleted: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Trivia / Quiz Arena ──────────────────────────────────
+app.post('/api/quizzes', async (req, res) => {
+  try { res.json(await createQuiz(req.body)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/quizzes', async (req, res) => {
+  try { res.json(await getAllQuizzes()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/quizzes/leaderboard', async (req, res) => {
+  try { res.json(await getQuizLeaderboard()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/quizzes/:id', async (req, res) => {
+  try { res.json(await getQuiz(req.params.id)); }
+  catch (err) { res.status(err.message === 'Quiz not found' ? 404 : 500).json({ error: err.message }); }
+});
+
+app.put('/api/quizzes/:id', async (req, res) => {
+  try { res.json(await updateQuiz(req.params.id, req.body)); }
+  catch (err) { res.status(err.message === 'Quiz not found' ? 404 : 500).json({ error: err.message }); }
+});
+
+app.delete('/api/quizzes/:id', async (req, res) => {
+  try { await deleteQuiz(req.params.id); res.json({ deleted: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/quizzes/:id/attempt', async (req, res) => {
+  try { res.json(await submitQuizAttempt(req.params.id, req.body)); }
+  catch (err) { res.status(err.message === 'Quiz not found' ? 404 : 500).json({ error: err.message }); }
+});
+
+// ── Photo Gallery / Wall ────────────────────────────────
+app.post('/api/gallery', async (req, res) => {
+  try { res.json(await createPhoto(req.body)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/gallery', async (req, res) => {
+  try { res.json(await getAllPhotos()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/gallery/:id', async (req, res) => {
+  try { await deletePhoto(req.params.id); res.json({ deleted: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/gallery/:id/reaction', async (req, res) => {
+  try { res.json(await togglePhotoReaction(req.params.id, req.body)); }
+  catch (err) { res.status(err.message === 'Photo not found' ? 404 : 500).json({ error: err.message }); }
+});
+
+app.post('/api/gallery/:id/comments', async (req, res) => {
+  try { res.json(await addPhotoComment(req.params.id, req.body)); }
+  catch (err) { res.status(err.message === 'Photo not found' ? 404 : 500).json({ error: err.message }); }
 });
 
 // ── Final Server Start ──────────────────────────────────

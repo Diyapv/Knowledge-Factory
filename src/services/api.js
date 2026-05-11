@@ -432,10 +432,24 @@ export async function toggleFeedbackLikeApi(feedbackId, username) {
 }
 
 export async function deleteFeedbackApi(id, username) {
-  const res = await fetch(`${API_URL}/feedback/${id}?username=${encodeURIComponent(username)}`, {
+  const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
+  const role = currentUser.role || '';
+  const res = await fetch(`${API_URL}/feedback/${id}?username=${encodeURIComponent(username)}&role=${encodeURIComponent(role)}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error('Failed to delete feedback');
+  return res.json();
+}
+
+export async function updateFeedbackApi(id, username, data) {
+  const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
+  const role = currentUser.role || '';
+  const res = await fetch(`${API_URL}/feedback/${id}?username=${encodeURIComponent(username)}&role=${encodeURIComponent(role)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update feedback');
   return res.json();
 }
 
@@ -709,7 +723,10 @@ export async function votePollApi(id, username, optionIds) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, optionIds }),
   });
-  if (!res.ok) throw new Error('Failed to vote');
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to vote');
+  }
   return res.json();
 }
 
@@ -726,7 +743,8 @@ export async function closePollApi(id, username) {
 export async function deletePollApi(id) {
   const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
   const username = currentUser.name || currentUser.username || '';
-  const res = await fetch(`${API_URL}/polls/${id}?user=${encodeURIComponent(username)}`, { method: 'DELETE' });
+  const role = currentUser.role || '';
+  const res = await fetch(`${API_URL}/polls/${id}?user=${encodeURIComponent(username)}&role=${encodeURIComponent(role)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete poll');
   return res.json();
 }
@@ -994,5 +1012,206 @@ export async function updateActionItemApi(meetingId, actionId, data) {
 export async function deleteActionItemApi(meetingId, actionId) {
   const res = await fetch(`${API_URL}/meetings/${meetingId}/actions/${actionId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete action');
+  return res.json();
+}
+
+// Standup Messages
+export async function fetchStandupMessages(pageId) {
+  const res = await fetch(`${API_URL}/standups/pages/${pageId}/messages`);
+  if (!res.ok) throw new Error('Failed to fetch messages');
+  return res.json();
+}
+
+export async function sendStandupMessage(pageId, data) {
+  const res = await fetch(`${API_URL}/standups/pages/${pageId}/messages`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to send message');
+  return res.json();
+}
+
+export async function deleteStandupMessageApi(msgId) {
+  const res = await fetch(`${API_URL}/standups/messages/${msgId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete message');
+  return res.json();
+}
+
+// Celebrations
+export async function fetchCelebrations() {
+  const res = await fetch(`${API_URL}/celebrations`);
+  if (!res.ok) throw new Error('Failed to fetch celebrations');
+  return res.json();
+}
+
+export async function sendCelebrationWish(data) {
+  const res = await fetch(`${API_URL}/celebrations/send-wishes`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to send wish');
+  return res.json();
+}
+
+export async function fetchMyWishes(name) {
+  const res = await fetch(`${API_URL}/celebrations/wishes/${encodeURIComponent(name)}`);
+  if (!res.ok) throw new Error('Failed to fetch wishes');
+  return res.json();
+}
+
+export async function markWishReadApi(wishId) {
+  const res = await fetch(`${API_URL}/celebrations/wishes/${wishId}/read`, { method: 'PUT' });
+  if (!res.ok) throw new Error('Failed to mark wish read');
+  return res.json();
+}
+
+// ── Idea Box / Innovation Board ──────────────────────────
+export async function fetchIdeas() {
+  const res = await fetch(`${API_URL}/ideas`);
+  return res.json();
+}
+
+export async function createIdeaApi(data) {
+  const res = await fetch(`${API_URL}/ideas`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create idea');
+  return res.json();
+}
+
+export async function upvoteIdeaApi(id, username) {
+  const res = await fetch(`${API_URL}/ideas/${id}/upvote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+  if (!res.ok) throw new Error('Failed to upvote');
+  return res.json();
+}
+
+export async function setIdeaOfMonthApi(id) {
+  const res = await fetch(`${API_URL}/ideas/${id}/idea-of-month`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to set idea of the month');
+  return res.json();
+}
+
+export async function updateIdeaStatusApi(id, status) {
+  const res = await fetch(`${API_URL}/ideas/${id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error('Failed to update status');
+  return res.json();
+}
+
+export async function addIdeaCommentApi(id, data) {
+  const res = await fetch(`${API_URL}/ideas/${id}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to add comment');
+  return res.json();
+}
+
+export async function deleteIdeaApi(id) {
+  const res = await fetch(`${API_URL}/ideas/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete idea');
+  return res.json();
+}
+
+// ── Trivia / Quiz Arena ──────────────────────────────────
+export async function fetchQuizzes() {
+  const res = await fetch(`${API_URL}/quizzes`);
+  return res.json();
+}
+
+export async function fetchQuiz(id) {
+  const res = await fetch(`${API_URL}/quizzes/${id}`);
+  if (!res.ok) throw new Error('Quiz not found');
+  return res.json();
+}
+
+export async function createQuizApi(data) {
+  const res = await fetch(`${API_URL}/quizzes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create quiz');
+  return res.json();
+}
+
+export async function updateQuizApi(id, data) {
+  const res = await fetch(`${API_URL}/quizzes/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update quiz');
+  return res.json();
+}
+
+export async function deleteQuizApi(id) {
+  const res = await fetch(`${API_URL}/quizzes/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete quiz');
+  return res.json();
+}
+
+export async function submitQuizAttemptApi(id, data) {
+  const res = await fetch(`${API_URL}/quizzes/${id}/attempt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to submit quiz');
+  return res.json();
+}
+
+export async function fetchQuizLeaderboard() {
+  const res = await fetch(`${API_URL}/quizzes/leaderboard`);
+  return res.json();
+}
+
+// ── Photo Gallery / Wall ─────────────────────────────────
+export async function fetchPhotos() {
+  const res = await fetch(`${API_URL}/gallery`);
+  return res.json();
+}
+
+export async function uploadPhotoApi(data) {
+  const res = await fetch(`${API_URL}/gallery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to upload photo');
+  return res.json();
+}
+
+export async function deletePhotoApi(id) {
+  const res = await fetch(`${API_URL}/gallery/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete photo');
+  return res.json();
+}
+
+export async function togglePhotoReactionApi(id, data) {
+  const res = await fetch(`${API_URL}/gallery/${id}/reaction`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to toggle reaction');
+  return res.json();
+}
+
+export async function addPhotoCommentApi(id, data) {
+  const res = await fetch(`${API_URL}/gallery/${id}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to add comment');
   return res.json();
 }

@@ -2,13 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
   MessageSquare, Plus, Trash2, X, Send, Loader2, Search,
-  ThumbsUp, MessageCircle, ChevronDown, ChevronUp, Filter, AtSign
+  ThumbsUp, MessageCircle, ChevronDown, ChevronUp, Filter, AtSign, Pencil, Check
 } from 'lucide-react';
 import Header from '../components/Header';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchFeedback, createFeedbackApi, addReplyApi,
-  toggleFeedbackLikeApi, deleteFeedbackApi, deleteReplyApi, toggleReplyLikeApi,
+  toggleFeedbackLikeApi, deleteFeedbackApi, updateFeedbackApi, deleteReplyApi, toggleReplyLikeApi,
   fetchEmployees, notifyMentionsApi
 } from '../services/api';
 
@@ -224,6 +224,8 @@ export default function Feedback() {
   const [replyText, setReplyText] = useState({});
   const [replyLoading, setReplyLoading] = useState({});
   const [employees, setEmployees] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ title: '', content: '', category: 'general' });
   const titleRef = useRef(null);
 
   const load = () => {
@@ -292,6 +294,25 @@ export default function Feedback() {
       await deleteFeedbackApi(id, user.username);
       load();
     } catch { /* ignore */ }
+  };
+
+  const handleEdit = (item) => {
+    setEditingId(item.id);
+    setEditForm({ title: item.title || '', content: item.content || '', category: item.category || 'general' });
+  };
+
+  const handleEditSave = async (id) => {
+    if (!editForm.title.trim() && !editForm.content.trim()) return;
+    try {
+      await updateFeedbackApi(id, user.username, editForm);
+      setEditingId(null);
+      load();
+    } catch { /* ignore */ }
+  };
+
+  const handleEditCancel = () => {
+    setEditingId(null);
+    setEditForm({ title: '', content: '', category: 'general' });
   };
 
   const handleDeleteReply = async (feedbackId, replyId) => {
@@ -419,6 +440,8 @@ export default function Feedback() {
               const replyCount = (item.replies || []).length;
               const isExpanded = expandedReplies[item.id];
               const isOwner = item.username === user.username;
+              const canEdit = isOwner || user.role === 'admin';
+              const isEditing = editingId === item.id;
 
               return (
                 <div key={item.id} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden hover:shadow-md transition-shadow">
@@ -433,14 +456,51 @@ export default function Feedback() {
                           <span className="font-semibold text-sm text-slate-800 dark:text-white">{item.displayName}</span>
                           <span className={`px-2 py-0.5 text-xs rounded-full ${cat.className}`}>{cat.label}</span>
                           <span className="text-xs text-slate-400 dark:text-slate-500">{timeAgo(item.createdAt)}</span>
-                          {isOwner && (
-                            <button onClick={() => handleDelete(item.id)} className="ml-auto text-slate-400 hover:text-red-500 transition-colors">
+                          {canEdit && !isEditing && (
+                            <button onClick={() => handleEdit(item)} className="ml-auto text-slate-400 hover:text-indigo-500 transition-colors" title="Edit">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {canEdit && (
+                            <button onClick={() => handleDelete(item.id)} className={`${canEdit && !isEditing ? '' : 'ml-auto'} text-slate-400 hover:text-red-500 transition-colors`} title="Delete">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
-                        {item.title && <h4 className="font-semibold text-slate-800 dark:text-white mt-1">{item.title}</h4>}
-                        {item.content && <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-wrap">{renderWithMentions(item.content, employees)}</p>}
+                        {isEditing ? (
+                          <div className="mt-2 space-y-3">
+                            <input value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
+                              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                              placeholder="Title" />
+                            <textarea value={editForm.content} onChange={e => setEditForm(f => ({ ...f, content: e.target.value }))} rows={3}
+                              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y"
+                              placeholder="Content" />
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-slate-500">Category:</span>
+                                {CATEGORIES.map(c => (
+                                  <button key={c.id} type="button" onClick={() => setEditForm(f => ({ ...f, category: c.id }))}
+                                    className={`px-2 py-0.5 text-xs rounded-full transition-all ${editForm.category === c.id
+                                      ? getCategoryStyle(c.id).className + ' font-semibold'
+                                      : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
+                                    {c.label}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button onClick={handleEditCancel} className="px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">Cancel</button>
+                                <button onClick={() => handleEditSave(item.id)} className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium">
+                                  <Check className="w-3.5 h-3.5" /> Save
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {item.title && <h4 className="font-semibold text-slate-800 dark:text-white mt-1">{item.title}</h4>}
+                            {item.content && <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-wrap">{renderWithMentions(item.content, employees)}</p>}
+                          </>
+                        )}
                       </div>
                     </div>
 

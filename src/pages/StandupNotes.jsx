@@ -2,13 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, Plus, X, ChevronLeft, ChevronRight, Users, Trash2, Edit2,
-  Clock, AlertTriangle, CheckCircle2, ArrowLeft, History, UserPlus, UserMinus, AtSign, Link as LinkIcon
+  Clock, AlertTriangle, CheckCircle2, ArrowLeft, History, UserPlus, UserMinus, AtSign, Link as LinkIcon, MessageCircle, Send
 } from 'lucide-react';
 import {
   fetchStandupPages, createStandupPageApi, updateStandupMembersApi, deleteStandupPageApi,
   fetchStandupEntries, addStandupEntryApi, updateStandupEntryApi, deleteStandupEntryApi,
-  fetchEmployees
+  fetchEmployees, fetchStandupMessages, sendStandupMessage, deleteStandupMessageApi
 } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 function formatDate(date) {
   const y = date.getFullYear();
@@ -18,6 +19,7 @@ function formatDate(date) {
 }
 
 export default function StandupNotes() {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [pages, setPages] = useState([]);
   const [activePage, setActivePage] = useState(null);
@@ -36,12 +38,16 @@ export default function StandupNotes() {
   const [memberSearch, setMemberSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchRef = useRef(null);
+  const [activeTab, setActiveTab] = useState('updates');
+  const [messages, setMessages] = useState([]);
+  const [msgText, setMsgText] = useState('');
+  const messagesEndRef = useRef(null);
 
-  const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
+  const currentUser = user || {};
   const username = currentUser.name || currentUser.username || '';
   const dateStr = formatDate(selectedDate);
 
-  useEffect(() => { loadPages(); loadEmployees(); }, []);
+  useEffect(() => { if (username) loadPages(); loadEmployees(); }, [username]);
 
   // Open page directly from URL param ?page=<id>
   useEffect(() => {
@@ -65,6 +71,39 @@ export default function StandupNotes() {
   useEffect(() => {
     if (activePage) loadEntries();
   }, [activePage, selectedDate]);
+
+  useEffect(() => {
+    if (activePage) loadMessages();
+  }, [activePage]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  async function loadMessages() {
+    if (!activePage) return;
+    try { setMessages(await fetchStandupMessages(activePage.id)); }
+    catch (e) { console.error(e); }
+  }
+
+  async function handleSendMessage(e) {
+    e.preventDefault();
+    if (!msgText.trim()) return;
+    try {
+      await sendStandupMessage(activePage.id, {
+        text: msgText.trim(),
+        sender: username,
+        senderName: currentUser.displayName || currentUser.name || username,
+      });
+      setMsgText('');
+      loadMessages();
+    } catch (err) { showToast('Failed to send message'); }
+  }
+
+  async function handleDeleteMessage(msgId) {
+    try { await deleteStandupMessageApi(msgId); loadMessages(); }
+    catch (e) { showToast('Failed to delete'); }
+  }
 
   async function loadPages() {
     setLoading(true);
@@ -413,6 +452,23 @@ export default function StandupNotes() {
         <p className="text-sm text-gray-500 dark:text-gray-400 ml-10 mb-4">{activePage.description}</p>
       )}
 
+      {/* Tabs */}
+      <div className="flex gap-1 mb-5 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
+        <button
+          onClick={() => setActiveTab('updates')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'updates' ? 'bg-white dark:bg-gray-700 text-teal-700 dark:text-teal-300 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
+        >
+          <ClipboardList className="w-4 h-4" /> Updates
+        </button>
+        <button
+          onClick={() => setActiveTab('chat')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'chat' ? 'bg-white dark:bg-gray-700 text-teal-700 dark:text-teal-300 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
+        >
+          <MessageCircle className="w-4 h-4" /> Group Chat
+        </button>
+      </div>
+
+      {activeTab === 'updates' && (<>
       {/* Date Navigation */}
       <div className="flex items-center gap-4 mb-6">
         <button onClick={() => changeDate(-1)} className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600">
@@ -493,11 +549,61 @@ export default function StandupNotes() {
           ))}
         </div>
       )}
+      </>)}
+
+      {/* Chat Tab */}
+      {activeTab === 'chat' && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-col" style={{ height: '65vh' }}>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {messages.length === 0 ? (
+              <div className="text-center text-gray-400 dark:text-gray-500 py-12">
+                <MessageCircle className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+                <p>No messages yet. Start the conversation!</p>
+              </div>
+            ) : messages.map(msg => {
+              const isMe = msg.sender?.toLowerCase() === username.toLowerCase();
+              return (
+                <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[75%] rounded-2xl px-4 py-2 ${isMe ? 'bg-teal-600 text-white rounded-br-md' : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white rounded-bl-md'}`}>
+                    {!isMe && <p className="text-xs font-semibold text-teal-600 dark:text-teal-400 mb-0.5">{msg.senderName || msg.sender}</p>}
+                    <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                    <div className={`flex items-center gap-2 mt-1 ${isMe ? 'justify-end' : ''}`}>
+                      <span className={`text-xs ${isMe ? 'text-teal-200' : 'text-gray-400'}`}>
+                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {isMe && (
+                        <button onClick={() => handleDeleteMessage(msg.id)} className="text-xs text-teal-200 hover:text-red-300 opacity-0 group-hover:opacity-100">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+          {/* Input */}
+          <form onSubmit={handleSendMessage} className="border-t border-gray-200 dark:border-gray-700 p-3 flex gap-2">
+            <input
+              type="text"
+              value={msgText}
+              onChange={e => setMsgText(e.target.value)}
+              placeholder="Type a message..."
+              className="flex-1 border border-gray-300 dark:border-gray-600 rounded-full px-4 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+            <button type="submit" className="p-2 bg-teal-600 text-white rounded-full hover:bg-teal-700 transition disabled:opacity-50" disabled={!msgText.trim()}>
+              <Send className="w-4 h-4" />
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Entry Form Modal */}
       {showEntry && (
-        <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-lg shadow-xl my-8">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-2xl shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">
                 {editingEntry ? 'Edit Update' : 'Post Daily Update'} — {dateStr}
@@ -516,7 +622,7 @@ export default function StandupNotes() {
                   onChange={e => setEntryForm({ ...entryForm, yesterday: e.target.value })}
                   rows={3}
                   placeholder="Completed task X, reviewed PR #123..."
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
                 />
               </div>
               <div>
@@ -528,7 +634,7 @@ export default function StandupNotes() {
                   onChange={e => setEntryForm({ ...entryForm, today: e.target.value })}
                   rows={3}
                   placeholder="Working on feature Y, standup meeting..."
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
                 />
               </div>
               <div>
@@ -540,7 +646,7 @@ export default function StandupNotes() {
                   onChange={e => setEntryForm({ ...entryForm, blockers: e.target.value })}
                   rows={2}
                   placeholder="Waiting for API keys, build is broken..."
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
                 />
               </div>
               <div className="flex justify-end gap-3 pt-2">

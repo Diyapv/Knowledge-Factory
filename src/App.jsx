@@ -33,6 +33,10 @@ import Bookings from './pages/Bookings';
 import QuickLinks from './pages/QuickLinks';
 import StandupNotes from './pages/StandupNotes';
 import MeetingMinutes from './pages/MeetingMinutes';
+import Celebrations from './pages/Celebrations';
+import IdeaBox from './pages/IdeaBox';
+import TriviaArena from './pages/TriviaArena';
+import PhotoGallery from './pages/PhotoGallery';
 
 function AppRoutes() {
   const { user, isAdmin } = useAuth();
@@ -72,6 +76,10 @@ function AppRoutes() {
         <Route path="/quicklinks" element={<QuickLinks />} />
         <Route path="/standups" element={<StandupNotes />} />
         <Route path="/meetings" element={<MeetingMinutes />} />
+        <Route path="/celebrations" element={<Celebrations />} />
+        <Route path="/ideas" element={<IdeaBox />} />
+        <Route path="/trivia" element={<TriviaArena />} />
+        <Route path="/gallery" element={<PhotoGallery />} />
       </Route>
     </Routes>
   );
