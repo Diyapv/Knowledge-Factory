@@ -28,13 +28,44 @@ function getInitials(name) {
   return (name || '??').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
-// Render @mentions as highlighted spans
-function renderWithMentions(text) {
+// Render @mentions as highlighted spans with hover popover
+function MentionTag({ name, employees }) {
+  const [show, setShow] = useState(false);
+  const emp = employees.find(e => (e.name || '').toLowerCase() === name.toLowerCase());
+  return (
+    <span className="relative inline-block"
+      onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      <span className="text-yellow-700 dark:text-yellow-400 font-semibold bg-yellow-50 dark:bg-yellow-900/30 px-1 rounded cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/50 transition-colors">
+        @{name}
+      </span>
+      {show && emp && (
+        <div className="absolute left-0 bottom-full mb-2 w-60 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 p-3 pointer-events-none">
+          <div className="flex items-center gap-2.5 mb-2">
+            <div className="w-9 h-9 rounded-full bg-yellow-100 dark:bg-yellow-900/40 flex items-center justify-center text-xs font-bold text-yellow-700 dark:text-yellow-400 shrink-0">
+              {getInitials(emp.name)}
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-sm text-gray-800 dark:text-white truncate">{emp.name}</p>
+              {emp.designation && <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{emp.designation}</p>}
+            </div>
+          </div>
+          <div className="space-y-1 text-xs text-gray-500 dark:text-gray-400">
+            {emp.department && <p><span className="font-medium text-gray-600 dark:text-gray-300">Dept:</span> {emp.department}</p>}
+            {emp.email && <p><span className="font-medium text-gray-600 dark:text-gray-300">Email:</span> {emp.email}</p>}
+            {emp.location && <p><span className="font-medium text-gray-600 dark:text-gray-300">Location:</span> {emp.location}</p>}
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+function renderWithMentions(text, employees) {
   if (!text) return null;
   const parts = text.split(/(@\w[\w.\- ]*\w)/g);
   return parts.map((part, i) =>
     /^@\w/.test(part)
-      ? <span key={i} className="text-yellow-700 dark:text-yellow-400 font-semibold bg-yellow-50 dark:bg-yellow-900/30 px-1 rounded">{part}</span>
+      ? <MentionTag key={i} name={part.slice(1)} employees={employees || []} />
       : part
   );
 }
@@ -375,7 +406,7 @@ export default function Recognition() {
                 )}
               </div>
 
-              <p className="text-sm text-gray-700 dark:text-gray-300 mb-3 leading-relaxed whitespace-pre-wrap">{renderWithMentions(rec.message)}</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 mb-3 leading-relaxed whitespace-pre-wrap">{renderWithMentions(rec.message, employees)}</p>
 
               <div className="flex flex-wrap gap-1.5 mb-3">
                 {(rec.tags || []).map(tag => (

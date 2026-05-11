@@ -53,13 +53,44 @@ function getInitials(name) {
   return (name || '??').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
-// Render @mentions as highlighted spans
-function renderWithMentions(text) {
+// Render @mentions as highlighted spans with hover popover
+function MentionTag({ name, employees }) {
+  const [show, setShow] = useState(false);
+  const emp = employees.find(e => (e.name || '').toLowerCase() === name.toLowerCase());
+  return (
+    <span className="relative inline-block"
+      onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      <span className="text-indigo-600 dark:text-indigo-400 font-semibold bg-indigo-50 dark:bg-indigo-900/30 px-1 rounded cursor-pointer hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors">
+        @{name}
+      </span>
+      {show && emp && (
+        <div className="absolute left-0 bottom-full mb-2 w-60 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 p-3 pointer-events-none">
+          <div className="flex items-center gap-2.5 mb-2">
+            <div className="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-xs font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
+              {getInitials(emp.name)}
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-sm text-slate-800 dark:text-white truncate">{emp.name}</p>
+              {emp.designation && <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{emp.designation}</p>}
+            </div>
+          </div>
+          <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400">
+            {emp.department && <p><span className="font-medium text-slate-600 dark:text-slate-300">Dept:</span> {emp.department}</p>}
+            {emp.email && <p><span className="font-medium text-slate-600 dark:text-slate-300">Email:</span> {emp.email}</p>}
+            {emp.location && <p><span className="font-medium text-slate-600 dark:text-slate-300">Location:</span> {emp.location}</p>}
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+function renderWithMentions(text, employees) {
   if (!text) return null;
   const parts = text.split(/(@\w[\w.\- ]*\w)/g);
   return parts.map((part, i) =>
     /^@\w/.test(part)
-      ? <span key={i} className="text-indigo-600 dark:text-indigo-400 font-semibold bg-indigo-50 dark:bg-indigo-900/30 px-1 rounded">{part}</span>
+      ? <MentionTag key={i} name={part.slice(1)} employees={employees || []} />
       : part
   );
 }
@@ -409,7 +440,7 @@ export default function Feedback() {
                           )}
                         </div>
                         {item.title && <h4 className="font-semibold text-slate-800 dark:text-white mt-1">{item.title}</h4>}
-                        {item.content && <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-wrap">{renderWithMentions(item.content)}</p>}
+                        {item.content && <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-wrap">{renderWithMentions(item.content, employees)}</p>}
                       </div>
                     </div>
 
@@ -450,7 +481,7 @@ export default function Feedback() {
                                   </button>
                                 )}
                               </div>
-                              <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5 whitespace-pre-wrap">{renderWithMentions(reply.text)}</p>
+                              <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5 whitespace-pre-wrap">{renderWithMentions(reply.text, employees)}</p>
                               <button onClick={() => handleReplyLike(item.id, reply.id)}
                                 className={`flex items-center gap-1 mt-1.5 text-xs transition-colors ${(reply.likes || []).includes(user.username) ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-slate-400 hover:text-indigo-500'}`}>
                                 <ThumbsUp className={`w-3 h-3 ${(reply.likes || []).includes(user.username) ? 'fill-current' : ''}`} />
