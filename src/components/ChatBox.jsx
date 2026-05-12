@@ -84,7 +84,7 @@ export default function ChatBox() {
 
     try {
       const history = [...messages, userMsg].slice(-6);
-      const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const API = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3001`;
 
       const response = await fetch(`${API}/api/chat/eb`, {
         method: 'POST',
