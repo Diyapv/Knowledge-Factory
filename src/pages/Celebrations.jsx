@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Cake, PartyPopper, Gift, Star, Send, Calendar, Sparkles, Trophy, Heart, Clock, Mail, CheckCheck, Crown, Award, Flame } from 'lucide-react';
 import { fetchCelebrations, sendCelebrationWish, fetchMyWishes, markWishReadApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -624,7 +625,7 @@ export default function Celebrations() {
       )}
 
       {/* Send Wish Modal — Festive Design */}
-      {wishTarget && (
+      {wishTarget && createPortal(
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setWishTarget(null)}>
           <div className="relative bg-white dark:bg-gray-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             {/* Modal Header */}
@@ -695,7 +696,8 @@ export default function Celebrations() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Stats Banner */}
@@ -715,13 +717,14 @@ export default function Celebrations() {
       </div>
 
       {/* Toast notification */}
-      {toast && (
+      {toast && createPortal(
         <div className="fixed bottom-6 right-6 z-50" style={{ animation: 'toast-in 0.4s ease-out' }}>
           <div className="flex items-center gap-3 bg-gray-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl border border-gray-700">
             <span className="text-xl">🎉</span>
             <span className="text-sm font-medium">{toast}</span>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

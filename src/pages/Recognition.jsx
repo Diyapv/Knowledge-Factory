@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Award, Heart, Send, Trash2, Search, Star, Users, TrendingUp, AtSign, Crown, ThumbsUp, Bold, Italic, Underline, List } from 'lucide-react';
-import { fetchRecognitions, createRecognitionApi, toggleRecognitionLikeApi, deleteRecognitionApi, fetchEmployees, notifyMentionsApi } from '../services/api';
+import { createPortal } from 'react-dom';
+import { Award, Heart, Send, Trash2, Search, Star, Users, TrendingUp, AtSign, Crown, ThumbsUp, Bold, Italic, Underline, List, MessageCircle, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { fetchRecognitions, createRecognitionApi, toggleRecognitionLikeApi, deleteRecognitionApi, fetchEmployees, notifyMentionsApi, addRecognitionReplyApi, toggleRecognitionReplyLikeApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const TAGS = [
@@ -218,6 +219,8 @@ export default function Recognition() {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
   const [filterTag, setFilterTag] = useState('All');
+  const [replyText, setReplyText] = useState({});
+  const [expandedReplies, setExpandedReplies] = useState({});
 
   // Form state
   const [to, setTo] = useState('');
@@ -253,7 +256,14 @@ export default function Recognition() {
         tags: selectedTags,
       });
       setRecognitions(prev => [rec, ...prev]);
-      // Notify mentioned users via email
+      // Notify the recognized person via email
+      notifyMentionsApi({
+        mentionedBy: user.name || user.username,
+        context: 'recognition',
+        feedbackTitle: toName.trim() || to.trim(),
+        messageText: message.trim(),
+      }).catch(() => {});
+      // Also notify anyone @mentioned in the message
       if (hasMentions(message)) {
         notifyMentionsApi({
           mentionedBy: user.name || user.username,
@@ -278,6 +288,37 @@ export default function Recognition() {
     try {
       await deleteRecognitionApi(id);
       setRecognitions(prev => prev.filter(r => r.id !== id));
+    } catch { /* ignore */ }
+  }
+
+  async function handleReply(recId) {
+    const text = (replyText[recId] || '').trim();
+    if (!text) return;
+    try {
+      const updated = await addRecognitionReplyApi(recId, {
+        username: user.username,
+        name: user.name || user.username,
+        text,
+      });
+      setRecognitions(prev => prev.map(r => r.id === recId ? updated : r));
+      setReplyText(prev => ({ ...prev, [recId]: '' }));
+      // Notify anyone @mentioned in the reply
+      if (hasMentions(text)) {
+        const rec = recognitions.find(r => r.id === recId);
+        notifyMentionsApi({
+          mentionedBy: user.name || user.username,
+          context: 'reply',
+          feedbackTitle: `Recognition for ${rec?.toName || rec?.to || ''}`,
+          messageText: text,
+        }).catch(() => {});
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function handleReplyLike(recId, replyId) {
+    try {
+      const updated = await toggleRecognitionReplyLikeApi(recId, replyId, user.username);
+      setRecognitions(prev => prev.map(r => r.id === recId ? updated : r));
     } catch { /* ignore */ }
   }
 
@@ -392,88 +433,97 @@ export default function Recognition() {
         </div>
       )}
 
-      {/* Give Recognition Form */}
-      {showForm && (
-        <form onSubmit={handleSubmit} className="relative rounded-2xl overflow-hidden border border-indigo-200 dark:border-indigo-800/40 shadow-lg">
-          {/* Form header gradient */}
-          <div className="bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 px-6 py-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-              <Star className="text-white" size={22} />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-white">Recognize a Colleague</h2>
-              <p className="text-xs text-indigo-200">Share your appreciation with the team</p>
-            </div>
-          </div>
+      {/* Give Recognition Modal */}
+      {showForm && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowForm(false)} />
 
-          <div className="bg-white dark:bg-gray-800 p-6 space-y-5">
-            {/* Who are you recognizing */}
-            <div>
-              <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Users size={13} /> Who are you recognizing?
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Username *</label>
-                  <input value={to} onChange={e => setTo(e.target.value)} placeholder="e.g. johndoe" required
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none transition-all" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Display Name</label>
-                  <input value={toName} onChange={e => setToName(e.target.value)} placeholder="e.g. John Doe"
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none transition-all" />
-                </div>
+          <form onSubmit={handleSubmit} className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            {/* Form header */}
+            <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-pink-500 px-6 py-5 flex items-center gap-3 sticky top-0 z-10">
+              <div className="w-11 h-11 rounded-full bg-white/25 backdrop-blur-sm flex items-center justify-center">
+                <Star className="text-white" size={24} />
               </div>
-            </div>
-
-            {/* Message */}
-            <div>
-              <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Send size={13} /> Your Message
-              </p>
-              <MentionInput
-                value={message}
-                onChange={setMessage}
-                employees={employees}
-                rows={3}
-                showToolbar
-                placeholder="Why are you recognizing this person? Type @ to mention someone..."
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none resize-none transition-all"
-              />
-            </div>
-
-            {/* Tags */}
-            <div>
-              <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Award size={13} /> Select Tags <span className="text-gray-400 normal-case tracking-normal font-normal">(at least one)</span>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {TAGS.map(tag => (
-                  <button key={tag} type="button" onClick={() => toggleTag(tag)}
-                    className={`px-3.5 py-1.5 rounded-full text-xs font-medium border-2 transition-all duration-200 ${
-                      selectedTags.includes(tag)
-                        ? 'scale-105 shadow-md border-indigo-400 ring-1 ring-indigo-300 ' + (TAG_COLORS[tag] || 'bg-gray-100 text-gray-700')
-                        : 'border-transparent bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 hover:scale-102'
-                    }`}>
-                    {tag}
-                  </button>
-                ))}
+              <div className="flex-1">
+                <h2 className="text-lg font-bold text-white">Recognize a Colleague</h2>
+                <p className="text-xs text-white/70">Share your appreciation with the team</p>
               </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-3 justify-end pt-2 border-t border-gray-100 dark:border-gray-700">
-              <button type="button" onClick={() => setShowForm(false)}
-                className="px-5 py-2.5 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors font-medium">
-                Cancel
-              </button>
-              <button type="submit" disabled={!to.trim() || !message.trim() || selectedTags.length === 0}
-                className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-semibold transition-all shadow-md hover:shadow-lg">
-                <Send size={16} /> Send Recognition
+              <button type="button" onClick={() => setShowForm(false)} className="p-2 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors">
+                <X size={18} />
               </button>
             </div>
-          </div>
-        </form>
+
+            <div className="bg-white dark:bg-gray-800 p-6 space-y-5">
+              {/* Who are you recognizing */}
+              <div>
+                <p className="text-xs font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                  <Users size={13} /> Who are you recognizing?
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Username *</label>
+                    <input value={to} onChange={e => setTo(e.target.value)} placeholder="e.g. johndoe" required
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 outline-none transition-all" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Display Name</label>
+                    <input value={toName} onChange={e => setToName(e.target.value)} placeholder="e.g. John Doe"
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 outline-none transition-all" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Message */}
+              <div>
+                <p className="text-xs font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                  <Send size={13} /> Your Message
+                </p>
+                <MentionInput
+                  value={message}
+                  onChange={setMessage}
+                  employees={employees}
+                  rows={3}
+                  showToolbar
+                  placeholder="Why are you recognizing this person? Type @ to mention someone..."
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-orange-400 focus:border-orange-400 outline-none resize-none transition-all"
+                />
+              </div>
+
+              {/* Tags */}
+              <div>
+                <p className="text-xs font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                  <Award size={13} /> Select Tags <span className="text-gray-400 normal-case tracking-normal font-normal">(at least one)</span>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {TAGS.map(tag => (
+                    <button key={tag} type="button" onClick={() => toggleTag(tag)}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-medium border-2 transition-all duration-200 ${
+                        selectedTags.includes(tag)
+                          ? 'scale-105 shadow-md border-orange-400 ring-1 ring-orange-300 ' + (TAG_COLORS[tag] || 'bg-gray-100 text-gray-700')
+                          : 'border-transparent bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 hover:scale-102'
+                      }`}>
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 justify-end pt-3 border-t border-gray-100 dark:border-gray-700">
+                <button type="button" onClick={() => setShowForm(false)}
+                  className="px-5 py-2.5 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors font-medium">
+                  Cancel
+                </button>
+                <button type="submit" disabled={!to.trim() || !message.trim() || selectedTags.length === 0}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-semibold transition-all shadow-md hover:shadow-lg">
+                  <Send size={16} /> Send Recognition
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>,
+        document.body
       )}
 
       {/* Filters */}
@@ -504,6 +554,7 @@ export default function Recognition() {
           {filtered.map(rec => {
             const liked = (rec.likes || []).includes(user.username);
             const likeCount = (rec.likes || []).length;
+            const replyCount = (rec.replies || []).length;
             const accentColor = rec.type === 'birthday' ? 'bg-pink-500' : 'bg-yellow-400';
             return (
               <div key={rec.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-lg transition-shadow flex">
@@ -549,17 +600,102 @@ export default function Recognition() {
                     </div>
                   </div>
 
-                  {/* Like bar */}
-                  <div className="px-5 py-2.5 border-t border-gray-100 dark:border-gray-700 flex items-center gap-4">
-                    <button onClick={() => handleLike(rec.id)}
-                      className={`flex items-center gap-1.5 text-sm transition-colors ${liked ? 'text-red-500' : 'text-gray-400 hover:text-red-400'}`}>
-                      <Heart size={16} fill={liked ? 'currentColor' : 'none'} />
-                      <span>{liked ? 'Liked' : 'Like'}</span>
+                  {/* Actions bar */}
+                  <div className="px-5 py-2.5 border-t border-gray-100 dark:border-gray-700 flex items-center gap-4 ml-14">
+                    <div className="relative group/like">
+                      <button onClick={() => handleLike(rec.id)}
+                        className={`flex items-center gap-1.5 text-xs transition-colors ${liked ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-400 hover:text-indigo-500'}`}>
+                        <Heart size={16} className={liked ? 'fill-current' : ''} />
+                        {likeCount > 0 && likeCount}
+                      </button>
+                      {likeCount > 0 && (
+                        <div className="absolute bottom-full left-0 mb-2 hidden group-hover/like:block z-50">
+                          <div className="bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap max-h-40 overflow-y-auto">
+                            <p className="font-semibold mb-1 text-indigo-300">Liked by</p>
+                            {(rec.likes || []).map((u, i) => {
+                              const emp = employees.find(e => (e.email || '').split('@')[0].toLowerCase() === u.toLowerCase() || (e.name || '').toLowerCase().replace(/\s+/g, '.') === u.toLowerCase());
+                              return <p key={i} className="py-0.5">{emp ? emp.name : u}</p>;
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={() => setExpandedReplies(prev => ({ ...prev, [rec.id]: !prev[rec.id] }))}
+                      className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-indigo-500 transition-colors">
+                      <MessageCircle size={16} />
+                      {replyCount > 0 ? `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}` : 'Reply'}
+                      {replyCount > 0 && (expandedReplies[rec.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
                     </button>
-                    {likeCount > 0 && (
-                      <span className="text-xs text-gray-400">{likeCount} {likeCount === 1 ? 'like' : 'likes'}</span>
-                    )}
                   </div>
+
+                  {/* Replies section */}
+                  {expandedReplies[rec.id] && (
+                    <div className="border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
+                      {/* Existing replies */}
+                      {(rec.replies || []).map(reply => {
+                        const rLiked = (reply.likes || []).includes(user.username);
+                        const rLikeCount = (reply.likes || []).length;
+                        return (
+                          <div key={reply.id} className="px-5 py-3 border-b border-gray-100 dark:border-gray-700/50 last:border-0">
+                            <div className="flex items-start gap-2.5 ml-6">
+                              <div className="w-7 h-7 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-500 dark:text-gray-400 shrink-0">
+                                {getInitials(reply.name)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-xs text-gray-700 dark:text-gray-200">{reply.name}</span>
+                                  <span className="text-xs text-gray-400">{timeAgo(reply.createdAt)}</span>
+                                </div>
+                                <p className="text-sm text-gray-600 dark:text-gray-300 mt-0.5 whitespace-pre-wrap">{renderWithMentions(reply.text, employees)}</p>
+                                <div className="relative group/rlike">
+                                  <button onClick={() => handleReplyLike(rec.id, reply.id)}
+                                    className={`flex items-center gap-1 mt-1.5 text-xs transition-colors ${rLiked ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-400 hover:text-indigo-500'}`}>
+                                    <Heart size={12} className={rLiked ? 'fill-current' : ''} />
+                                    {rLikeCount > 0 && <span>{rLikeCount}</span>}
+                                  </button>
+                                  {rLikeCount > 0 && (
+                                    <div className="absolute bottom-full left-0 mb-2 hidden group-hover/rlike:block z-50">
+                                      <div className="bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap max-h-40 overflow-y-auto">
+                                        <p className="font-semibold mb-1 text-indigo-300">Liked by</p>
+                                        {(reply.likes || []).map((u, i) => {
+                                          const emp = employees.find(e => (e.email || '').split('@')[0].toLowerCase() === u.toLowerCase() || (e.name || '').toLowerCase().replace(/\s+/g, '.') === u.toLowerCase());
+                                          return <p key={i} className="py-0.5">{emp ? emp.name : u}</p>;
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Reply input */}
+                      <div className="px-5 py-3 ml-6">
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-xs font-bold text-white shrink-0 mt-1">
+                            {getInitials(user.name || user.username)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <MentionInput
+                              placeholder="Write a reply... Type @ to mention"
+                              value={replyText[rec.id] || ''}
+                              onChange={val => setReplyText(prev => ({ ...prev, [rec.id]: val }))}
+                              employees={employees}
+                              rows={1}
+                              className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none placeholder:text-gray-400"
+                            />
+                          </div>
+                          <button onClick={() => handleReply(rec.id)}
+                            disabled={!(replyText[rec.id] || '').trim()}
+                            className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white transition-colors mt-0.5 shrink-0">
+                            <Send size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );

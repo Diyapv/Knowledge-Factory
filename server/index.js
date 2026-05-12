@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -18,7 +19,7 @@ const {
   createFeedback, getAllFeedback, addReply, toggleFeedbackLike, deleteFeedback, updateFeedback, deleteReply, toggleReplyLike,
   saveDailyLog, getDailyLog, getUserTaskLogs,
   addDevice, getAllDevices, getDeviceById, updateDevice, deleteDevice,
-  createRecognition, getAllRecognitions, toggleRecognitionLike, deleteRecognition,
+  createRecognition, getAllRecognitions, toggleRecognitionLike, deleteRecognition, addRecognitionReply, toggleRecognitionReplyLike,
   createJob, getAllJobs, getJobById, applyToJob, updateJobStatus, updateApplicantStatus, deleteJob,
   addEmployee, getAllEmployees, getEmployeeById, updateEmployee, deleteEmployee,
   searchEmployeesBySkill,
@@ -69,6 +70,7 @@ const upload = multer({
     }
   },
 });
+const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE } });
 
 const app = express();
 app.use(cors());
@@ -1002,7 +1004,26 @@ app.post('/api/feedback/:id/reply/:replyId/like', async (req, res) => {
 app.post('/api/feedback/notify-mentions', async (req, res) => {
   try {
     const { mentionedBy, context, feedbackTitle, messageText } = req.body;
-    if (!messageText) return res.json({ sent: 0 });
+    if (!messageText && context !== 'recognition') return res.json({ sent: 0 });
+
+    // For recognition context, send a recognition-specific email to the recognized person
+    if (context === 'recognition') {
+      const allEmployees = await getAllEmployees();
+      const recipientName = feedbackTitle; // toName is passed as feedbackTitle
+      const emp = allEmployees.find(e => e.name && e.name.toLowerCase() === recipientName.toLowerCase());
+      if (emp && emp.email) {
+        sendMentionNotification({
+          toEmail: emp.email,
+          mentionedName: emp.name,
+          mentionedBy,
+          context: 'recognition',
+          feedbackTitle: recipientName,
+          messageText: messageText || '',
+        });
+        return res.json({ sent: 1 });
+      }
+      return res.json({ sent: 0 });
+    }
 
     // Find all @mentions by checking employee names against the text
     const allEmployees = await getAllEmployees();
@@ -1103,6 +1124,75 @@ app.post('/api/devices', async (req, res) => {
   }
 });
 
+// Bulk upload devices from CSV
+app.post('/api/devices/bulk-upload', memUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const text = req.file.buffer.toString('utf8');
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return res.status(400).json({ error: 'CSV must have header + data rows' });
+
+    function parseCSVLine(line, sep = ',') {
+      const fields = []; let current = ''; let inQuotes = false;
+      for (const ch of line) {
+        if (ch === '"') { inQuotes = !inQuotes; }
+        else if (ch === sep && !inQuotes) { fields.push(current.trim()); current = ''; }
+        else { current += ch; }
+      }
+      fields.push(current.trim());
+      return fields;
+    }
+
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/\s+/g, ''));
+    const fieldMap = {
+      assettag: 'assetTag', tag: 'assetTag',
+      name: 'name', devicename: 'name', assetname: 'name',
+      category: 'category', type: 'category',
+      model: 'model',
+      serial: 'serialNumber', serialnumber: 'serialNumber', sn: 'serialNumber',
+      manufacturer: 'manufacturer', make: 'manufacturer',
+      assignedto: 'assignedTo', employee: 'assignedTo', user: 'assignedTo',
+      employeeid: 'employeeId', empid: 'employeeId',
+      location: 'location', office: 'location',
+      purchasedate: 'purchaseDate',
+      warrantyexpiry: 'warrantyExpiry', warranty: 'warrantyExpiry',
+      status: 'status',
+      notes: 'notes', specs: 'specs',
+    };
+    const colMapping = headers.map(h => fieldMap[h] || null);
+
+    const results = []; const errors = [];
+    for (let i = 1; i < lines.length; i++) {
+      try {
+        const vals = parseCSVLine(lines[i]);
+        const entry = {};
+        for (let j = 0; j < colMapping.length; j++) {
+          if (colMapping[j] && vals[j]) entry[colMapping[j]] = vals[j];
+        }
+        if (!entry.assignedTo && !entry.assetTag && !entry.name) continue;
+        // Map category to device type
+        const cat = (entry.category || '').toLowerCase();
+        if (cat.includes('laptop')) entry.type = 'laptop';
+        else if (cat.includes('desktop')) entry.type = 'desktop';
+        else if (cat.includes('monitor')) entry.type = 'desktop';
+        else if (cat.includes('phone')) entry.type = 'phone';
+        else if (cat.includes('tablet')) entry.type = 'tablet';
+        else if (cat.includes('dock')) entry.type = 'storage';
+        else if (cat.includes('printer')) entry.type = 'printer';
+        else entry.type = 'other';
+        entry.status = entry.assignedTo ? 'assigned' : (entry.status || 'available');
+        entry.addedBy = req.body?.addedBy || 'admin';
+        const device = await addDevice(entry);
+        results.push(device);
+      } catch (e) { errors.push({ row: i + 1, error: e.message }); }
+    }
+    res.json({ added: results.length, errors });
+  } catch (err) {
+    console.error('Bulk upload devices error:', err.message);
+    res.status(500).json({ error: 'Failed to bulk upload', details: err.message });
+  }
+});
+
 app.put('/api/devices/:id', async (req, res) => {
   try {
     const device = await updateDevice(req.params.id, req.body);
@@ -1162,6 +1252,27 @@ app.delete('/api/recognitions/:id', async (req, res) => {
     res.json({ deleted: true });
   } catch (err) {
     console.error('Delete recognition error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/recognitions/:id/replies', async (req, res) => {
+  try {
+    const rec = await addRecognitionReply(req.params.id, req.body);
+    res.json(rec);
+  } catch (err) {
+    console.error('Add recognition reply error:', err.message);
+    const status = err.message === 'Recognition not found' ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.post('/api/recognitions/:id/replies/:replyId/like', async (req, res) => {
+  try {
+    const rec = await toggleRecognitionReplyLike(req.params.id, req.params.replyId, req.body.username);
+    res.json(rec);
+  } catch (err) {
+    console.error('Toggle recognition reply like error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1346,6 +1457,7 @@ app.post('/api/employees/bulk-upload', upload.single('file'), async (req, res) =
       skills: 'skills', skill: 'skills', expertise: 'skills',
       location: 'location', office: 'location', city: 'location',
       joindate: 'joinDate', dateofjoining: 'joinDate', doj: 'joinDate', joiningdate: 'joinDate',
+      dateofbirth: 'dateOfBirth', dob: 'dateOfBirth', birthdate: 'dateOfBirth', birthday: 'dateOfBirth',
       bio: 'bio', about: 'bio', description: 'bio',
     };
 

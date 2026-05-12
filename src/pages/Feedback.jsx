@@ -506,11 +506,24 @@ export default function Feedback() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-4 mt-4 ml-12">
-                      <button onClick={() => handleLike(item.id)}
-                        className={`flex items-center gap-1.5 text-xs transition-colors ${isLiked ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-slate-400 hover:text-indigo-500'}`}>
-                        <ThumbsUp className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
-                        {(item.likes || []).length > 0 && (item.likes || []).length}
-                      </button>
+                      <div className="relative group/like">
+                        <button onClick={() => handleLike(item.id)}
+                          className={`flex items-center gap-1.5 text-xs transition-colors ${isLiked ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-slate-400 hover:text-indigo-500'}`}>
+                          <ThumbsUp className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
+                          {(item.likes || []).length > 0 && (item.likes || []).length}
+                        </button>
+                        {(item.likes || []).length > 0 && (
+                          <div className="absolute bottom-full left-0 mb-2 hidden group-hover/like:block z-50">
+                            <div className="bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap max-h-40 overflow-y-auto">
+                              <p className="font-semibold mb-1 text-indigo-300">Liked by</p>
+                              {(item.likes || []).map((u, i) => {
+                                const emp = employees.find(e => (e.email || '').split('@')[0].toLowerCase() === u.toLowerCase() || (e.name || '').toLowerCase().replace(/\s+/g, '.') === u.toLowerCase());
+                                return <p key={i} className="py-0.5">{emp ? emp.name : u}</p>;
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                       <button onClick={() => toggleReplies(item.id)}
                         className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-indigo-500 transition-colors">
                         <MessageCircle className="w-4 h-4" />
@@ -542,11 +555,24 @@ export default function Feedback() {
                                 )}
                               </div>
                               <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5 whitespace-pre-wrap">{renderWithMentions(reply.text, employees)}</p>
-                              <button onClick={() => handleReplyLike(item.id, reply.id)}
-                                className={`flex items-center gap-1 mt-1.5 text-xs transition-colors ${(reply.likes || []).includes(user.username) ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-slate-400 hover:text-indigo-500'}`}>
-                                <ThumbsUp className={`w-3 h-3 ${(reply.likes || []).includes(user.username) ? 'fill-current' : ''}`} />
-                                {(reply.likes || []).length > 0 && <span>{(reply.likes || []).length}</span>}
-                              </button>
+                              <div className="relative group/rlike">
+                                <button onClick={() => handleReplyLike(item.id, reply.id)}
+                                  className={`flex items-center gap-1 mt-1.5 text-xs transition-colors ${(reply.likes || []).includes(user.username) ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-slate-400 hover:text-indigo-500'}`}>
+                                  <ThumbsUp className={`w-3 h-3 ${(reply.likes || []).includes(user.username) ? 'fill-current' : ''}`} />
+                                  {(reply.likes || []).length > 0 && <span>{(reply.likes || []).length}</span>}
+                                </button>
+                                {(reply.likes || []).length > 0 && (
+                                  <div className="absolute bottom-full left-0 mb-2 hidden group-hover/rlike:block z-50">
+                                    <div className="bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap max-h-40 overflow-y-auto">
+                                      <p className="font-semibold mb-1 text-indigo-300">Liked by</p>
+                                      {(reply.likes || []).map((u, i) => {
+                                        const emp = employees.find(e => (e.email || '').split('@')[0].toLowerCase() === u.toLowerCase() || (e.name || '').toLowerCase().replace(/\s+/g, '.') === u.toLowerCase());
+                                        return <p key={i} className="py-0.5">{emp ? emp.name : u}</p>;
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>

@@ -991,6 +991,8 @@ async function addDevice(data) {
   const payload = {
     name: data.name || '',
     type: data.type || 'laptop',
+    category: data.category || '',
+    assetTag: data.assetTag || '',
     serialNumber: data.serialNumber || '',
     manufacturer: data.manufacturer || '',
     model: data.model || '',
@@ -998,6 +1000,7 @@ async function addDevice(data) {
     warrantyExpiry: data.warrantyExpiry || '',
     status: data.status || 'available',
     assignedTo: data.assignedTo || '',
+    employeeId: data.employeeId || '',
     assignedBy: data.assignedBy || '',
     assignedDate: data.assignedDate || '',
     location: data.location || '',
@@ -1022,7 +1025,7 @@ async function getAllDevices(filters = {}) {
 
   const result = await client.scroll(DEVICES_COLLECTION, {
     filter: must.length ? { must } : undefined,
-    limit: 500,
+    limit: 1000,
     with_payload: true,
   });
   return (result.points || []).map(p => ({
@@ -1087,6 +1090,40 @@ async function toggleRecognitionLike(recId, username) {
 async function deleteRecognition(recId) {
   await client.delete(RECOGNITION_COLLECTION, { wait: true, points: [Number(recId)] });
   return { deleted: true };
+}
+
+async function addRecognitionReply(recId, { username, name, text }) {
+  const existing = await client.retrieve(RECOGNITION_COLLECTION, { ids: [Number(recId)], with_payload: true });
+  if (!existing.length) throw new Error('Recognition not found');
+  const payload = existing[0].payload;
+  const replies = payload.replies || [];
+  const reply = { id: Date.now(), username, name, text, likes: [], createdAt: new Date().toISOString() };
+  replies.push(reply);
+  payload.replies = replies;
+  await client.upsert(RECOGNITION_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(recId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: recId, ...payload };
+}
+
+async function toggleRecognitionReplyLike(recId, replyId, username) {
+  const existing = await client.retrieve(RECOGNITION_COLLECTION, { ids: [Number(recId)], with_payload: true });
+  if (!existing.length) throw new Error('Recognition not found');
+  const payload = existing[0].payload;
+  const replies = payload.replies || [];
+  const reply = replies.find(r => r.id === Number(replyId));
+  if (!reply) throw new Error('Reply not found');
+  const likes = reply.likes || [];
+  const idx = likes.indexOf(username);
+  if (idx >= 0) likes.splice(idx, 1); else likes.push(username);
+  reply.likes = likes;
+  payload.replies = replies;
+  await client.upsert(RECOGNITION_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(recId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: recId, ...payload };
 }
 
 // ── Internal Job Board ──────────────────────────────────
@@ -1166,7 +1203,7 @@ async function deleteJob(jobId) {
 }
 
 // ── Employee Directory ──────────────────────────────────
-async function addEmployee({ employeeId, name, email, phone, department, role, designation, skills, location, joinDate, avatar, bio, addedBy }) {
+async function addEmployee({ employeeId, name, email, phone, department, role, designation, skills, location, joinDate, dateOfBirth, avatar, bio, addedBy }) {
   // Check for duplicates by employeeId or email
   const existing = await client.scroll(EMPLOYEES_COLLECTION, { limit: 5000, with_payload: true });
   for (const p of existing.points) {
@@ -1182,7 +1219,7 @@ async function addEmployee({ employeeId, name, email, phone, department, role, d
     employeeId: employeeId || '', name, email: email || '', phone: phone || '',
     department: department || '', role: role || '', designation: designation || '',
     skills: skills || [], location: location || 'EB India',
-    joinDate: joinDate || '', avatar: avatar || '', bio: bio || '',
+    joinDate: joinDate || '', dateOfBirth: dateOfBirth || '', avatar: avatar || '', bio: bio || '',
     addedBy, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   };
   await client.upsert(EMPLOYEES_COLLECTION, {
@@ -2341,6 +2378,8 @@ module.exports = {
   getAllRecognitions,
   toggleRecognitionLike,
   deleteRecognition,
+  addRecognitionReply,
+  toggleRecognitionReplyLike,
   createJob,
   getAllJobs,
   getJobById,

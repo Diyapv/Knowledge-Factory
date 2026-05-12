@@ -541,6 +541,14 @@ export async function deleteDeviceApi(id) {
   return res.json();
 }
 
+export async function bulkUploadDevicesApi(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_URL}/devices/bulk-upload`, { method: 'POST', body: formData });
+  if (!res.ok) throw new Error('Failed to upload devices');
+  return res.json();
+}
+
 // ── Recognition System ──────────────────────────────────
 export async function fetchRecognitions() {
   const res = await fetch(`${API_URL}/recognitions`);
@@ -570,6 +578,26 @@ export async function toggleRecognitionLikeApi(id, username) {
 export async function deleteRecognitionApi(id) {
   const res = await fetch(`${API_URL}/recognitions/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete recognition');
+  return res.json();
+}
+
+export async function addRecognitionReplyApi(recId, data) {
+  const res = await fetch(`${API_URL}/recognitions/${recId}/replies`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to add reply');
+  return res.json();
+}
+
+export async function toggleRecognitionReplyLikeApi(recId, replyId, username) {
+  const res = await fetch(`${API_URL}/recognitions/${recId}/replies/${replyId}/like`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+  if (!res.ok) throw new Error('Failed to toggle reply like');
   return res.json();
 }
 
