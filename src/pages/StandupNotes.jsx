@@ -324,8 +324,8 @@ export default function StandupNotes() {
 
         {/* Create Page Modal */}
         {showCreatePage && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl">
+          <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl my-auto">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white">New Standup Page</h2>
                 <button onClick={() => setShowCreatePage(false)} className="text-gray-400 hover:text-gray-600">
