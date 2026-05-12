@@ -3,7 +3,9 @@ import {
   Clock, Plus, X, Save, Trash2, Calendar, ChevronLeft, ChevronRight,
   CheckCircle2, XCircle, AlertCircle, Users, FileText, PlaneTakeoff,
   BarChart3, Play, Pause, Square, Copy, Download, TrendingUp,
-  Target, Zap, Timer, Send, Search, Briefcase, Activity
+  Target, Zap, Timer, Send, Search, Briefcase, Activity,
+  Bookmark, Shield, AlertTriangle, CalendarOff, Percent, MessageSquare,
+  LayoutTemplate, ChevronDown, Lock, Unlock
 } from 'lucide-react';
 import {
   saveTimesheetApi, fetchTimesheetByDate, fetchUserTimesheets, fetchAllTimesheetsByDate,
@@ -43,7 +45,22 @@ const CATEGORIES = [
   { value: 'other', label: 'Other', color: '#6b7280' },
 ];
 
-const DEFAULT_PROJECTS = ['AUTOSAR', 'EB Assist', 'EB tresos', 'EB corbos', 'Internal', 'Training', 'Meetings'];
+const DEFAULT_PROJECTS = ['Foxconn', 'SHM', 'VW', 'BMW', 'TVS', 'Internal', 'POC', 'AUTOSAR', 'EB tresos', 'EB corbos', 'Training', 'Meetings'];
+
+// Indian Public Holidays 2025-2026
+const PUBLIC_HOLIDAYS = {
+  '2025-01-26': 'Republic Day', '2025-03-14': 'Holi', '2025-04-10': 'Good Friday',
+  '2025-04-14': 'Ambedkar Jayanti', '2025-05-01': 'May Day', '2025-08-15': 'Independence Day',
+  '2025-08-27': 'Janmashtami', '2025-10-02': 'Gandhi Jayanti', '2025-10-20': 'Dussehra',
+  '2025-11-01': 'Kannada Rajyotsava', '2025-11-12': 'Diwali', '2025-12-25': 'Christmas',
+  '2026-01-26': 'Republic Day', '2026-03-03': 'Holi', '2026-04-03': 'Good Friday',
+  '2026-04-14': 'Ambedkar Jayanti', '2026-05-01': 'May Day', '2026-08-15': 'Independence Day',
+  '2026-08-16': 'Janmashtami', '2026-10-02': 'Gandhi Jayanti', '2026-10-09': 'Dussehra',
+  '2026-11-01': 'Kannada Rajyotsava', '2026-11-01': 'Diwali', '2026-12-25': 'Christmas',
+};
+
+const DAILY_HOURS = 8.5;
+const WEEKLY_HOURS = 42.5;
 
 function formatDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -133,6 +150,24 @@ export default function TimeSheet() {
   // Analytics state
   const [analyticsRange, setAnalyticsRange] = useState('week');
   const [analyticsData, setAnalyticsData] = useState([]);
+
+  // Templates state
+  const [templates, setTemplates] = useState(() => {
+    try { const saved = localStorage.getItem('ts_templates'); return saved ? JSON.parse(saved) : []; }
+    catch { return []; }
+  });
+  const [showTemplates, setShowTemplates] = useState(false);
+
+  // Rejection reason modal
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+
+  // Period lock state (admin)
+  const [lockedPeriods, setLockedPeriods] = useState(() => {
+    try { const saved = localStorage.getItem('ts_locked_periods'); return saved ? JSON.parse(saved) : []; }
+    catch { return []; }
+  });
 
   useEffect(() => { if (tab === 'timesheet') loadTimesheet(); }, [selectedDate, tab]);
   useEffect(() => { if (tab === 'timesheet' && viewMode === 'week') loadWeek(); }, [selectedDate, viewMode, tab]);
@@ -317,6 +352,88 @@ export default function TimeSheet() {
     }
   }
 
+  // ── Template functions ──
+  function saveTemplate(name) {
+    const validEntries = entries.filter(e => e.project || e.task);
+    if (!validEntries.length) return showToast('No entries to save as template');
+    const updated = [...templates, { id: Date.now(), name, entries: validEntries }];
+    setTemplates(updated);
+    localStorage.setItem('ts_templates', JSON.stringify(updated));
+    showToast(`Template "${name}" saved!`);
+  }
+
+  function loadTemplate(template) {
+    setEntries(template.entries.map(e => ({ ...e, hours: '', description: '' })));
+    setShowTemplates(false);
+    showToast(`Template "${template.name}" loaded`);
+  }
+
+  function deleteTemplate(id) {
+    const updated = templates.filter(t => t.id !== id);
+    setTemplates(updated);
+    localStorage.setItem('ts_templates', JSON.stringify(updated));
+  }
+
+  // ── Weekly Bulk Submit ──
+  async function submitWeek() {
+    const dates = getWeekDates(selectedDate);
+    let submitted = 0;
+    for (const d of dates) {
+      try {
+        const ts = await fetchTimesheetByDate(username, d);
+        if (ts?.entries?.length && ts.status === 'draft') {
+          await saveTimesheetApi({
+            username, displayName: user?.displayName || user?.name || username,
+            date: d, entries: ts.entries, totalHours: ts.totalHours, notes: ts.notes || '',
+            status: 'submitted', submittedAt: new Date().toISOString(),
+          });
+          submitted++;
+        }
+      } catch { /* skip */ }
+    }
+    if (submitted > 0) { loadWeek(); showToast(`${submitted} day(s) submitted!`); }
+    else showToast('No draft timesheets to submit this week');
+  }
+
+  // ── Rejection with reason ──
+  function openRejectModal(ts) {
+    setRejectTarget(ts);
+    setRejectReason('');
+    setShowRejectModal(true);
+  }
+
+  async function confirmReject() {
+    if (!rejectTarget) return;
+    try {
+      await saveTimesheetApi({ ...rejectTarget, status: 'rejected', rejectionReason: rejectReason, rejectedBy: username });
+      loadTeamSheets();
+      showToast('Timesheet rejected');
+    } catch { showToast('Failed to reject'); }
+    setShowRejectModal(false);
+    setRejectTarget(null);
+  }
+
+  // ── Period Lock (Admin) ──
+  function togglePeriodLock(weekStart) {
+    const updated = lockedPeriods.includes(weekStart)
+      ? lockedPeriods.filter(p => p !== weekStart)
+      : [...lockedPeriods, weekStart];
+    setLockedPeriods(updated);
+    localStorage.setItem('ts_locked_periods', JSON.stringify(updated));
+    showToast(updated.includes(weekStart) ? 'Period locked' : 'Period unlocked');
+  }
+
+  function isDateLocked(date) {
+    const d = new Date(date + 'T00:00:00');
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(d);
+    monday.setDate(diff);
+    return lockedPeriods.includes(formatDate(monday));
+  }
+
+  function isHoliday(date) { return PUBLIC_HOLIDAYS[date] || null; }
+
   async function handleLeaveSubmit(e) {
     e.preventDefault();
     try {
@@ -490,7 +607,7 @@ export default function TimeSheet() {
             <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-gray-800 dark:text-white">{monthName}</h3>
-                <span className={`text-sm font-bold ${monthTotal >= 160 ? 'text-green-600' : 'text-amber-600'}`}>{monthTotal}h total</span>
+                <span className={`text-sm font-bold ${monthTotal >= 170 ? 'text-green-600' : 'text-amber-600'}`}>{monthTotal}h total</span>
               </div>
               <div className="grid grid-cols-7 gap-1 mb-2">
                 {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
@@ -503,15 +620,23 @@ export default function TimeSheet() {
                   const hours = monthData[date]?.hours || 0;
                   const isToday = date === formatDate(new Date());
                   const isWeekend = new Date(date + 'T00:00:00').getDay() % 6 === 0;
+                  const holiday = isHoliday(date);
+                  const locked = isDateLocked(date);
                   let bg = 'bg-gray-50 dark:bg-gray-700/50';
-                  if (hours >= 8) bg = 'bg-emerald-200 dark:bg-emerald-800/60';
+                  if (holiday) bg = 'bg-orange-50 dark:bg-orange-900/20';
+                  else if (hours >= 8.5) bg = 'bg-emerald-200 dark:bg-emerald-800/60';
                   else if (hours >= 4) bg = 'bg-emerald-100 dark:bg-emerald-900/40';
                   else if (hours > 0) bg = 'bg-emerald-50 dark:bg-emerald-900/20';
                   if (isWeekend) bg = 'bg-gray-100/50 dark:bg-gray-800';
                   return (
                     <button key={date} onClick={() => { setSelectedDate(date); setViewMode('day'); }}
-                      className={`p-1.5 rounded-lg text-center transition hover:ring-2 hover:ring-emerald-400 ${bg} ${isToday ? 'ring-2 ring-emerald-500' : ''}`}>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{parseInt(date.split('-')[2])}</p>
+                      title={holiday || ''} 
+                      className={`p-1.5 rounded-lg text-center transition hover:ring-2 hover:ring-emerald-400 ${bg} ${isToday ? 'ring-2 ring-emerald-500' : ''} ${locked ? 'opacity-60' : ''}`}>
+                      <p className={`text-xs ${holiday ? 'text-orange-600 dark:text-orange-400 font-bold' : 'text-gray-500 dark:text-gray-400'}`}>
+                        {parseInt(date.split('-')[2])}
+                        {holiday && <CalendarOff className="w-2.5 h-2.5 inline ml-0.5" />}
+                        {locked && <Lock className="w-2.5 h-2.5 inline ml-0.5 text-red-400" />}
+                      </p>
                       {hours > 0 && <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">{hours}h</p>}
                     </button>
                   );
@@ -526,29 +651,47 @@ export default function TimeSheet() {
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold text-gray-800 dark:text-white text-sm">Week Summary</h3>
                 <div className="flex items-center gap-3">
+                  {isAdmin && (
+                    <button onClick={() => togglePeriodLock(weekDates[0])}
+                      className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition ${lockedPeriods.includes(weekDates[0]) ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-200'}`}>
+                      {lockedPeriods.includes(weekDates[0]) ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                      {lockedPeriods.includes(weekDates[0]) ? 'Locked' : 'Lock Week'}
+                    </button>
+                  )}
+                  <button onClick={submitWeek}
+                    className="flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg text-xs font-medium hover:bg-blue-200">
+                    <Send className="w-3 h-3" /> Submit Week
+                  </button>
                   <div className="w-32 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.min(100, (weekTotal / 40) * 100)}%` }} />
+                    <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.min(100, (weekTotal / WEEKLY_HOURS) * 100)}%` }} />
                   </div>
-                  <span className={`text-sm font-bold ${weekTotal >= 40 ? 'text-green-600' : weekTotal >= 20 ? 'text-amber-600' : 'text-red-600'}`}>
-                    {weekTotal}h / 40h
+                  <span className={`text-sm font-bold ${weekTotal >= WEEKLY_HOURS ? 'text-green-600' : weekTotal >= 21 ? 'text-amber-600' : 'text-red-600'}`}>
+                    {weekTotal}h / {WEEKLY_HOURS}h
                   </span>
                 </div>
               </div>
               <div className="grid grid-cols-5 gap-2">
                 {weekDates.map(d => {
                   const dayData = weekData[d] || { hours: 0, status: 'draft' };
+                  const holiday = isHoliday(d);
+                  const locked = isDateLocked(d);
                   return (
                     <button key={d} onClick={() => { setSelectedDate(d); setViewMode('day'); }}
-                      className={`text-center p-3 rounded-lg border transition ${d === selectedDate ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                      title={holiday || ''}
+                      className={`text-center p-3 rounded-lg border transition ${d === selectedDate ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : holiday ? 'border-orange-300 bg-orange-50 dark:bg-orange-900/20 dark:border-orange-800' : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'} ${locked ? 'opacity-60' : ''}`}>
                       <p className="text-[10px] text-gray-400">{displayDate(d)}</p>
-                      <p className={`text-xl font-bold mt-1 ${dayData.hours >= 8 ? 'text-green-600' : dayData.hours > 0 ? 'text-amber-600' : 'text-gray-300'}`}>
+                      {holiday && <p className="text-[9px] text-orange-600 dark:text-orange-400 font-medium truncate">{holiday}</p>}
+                      <p className={`text-xl font-bold mt-1 ${dayData.hours >= 8.5 ? 'text-green-600' : dayData.hours > 0 ? 'text-amber-600' : 'text-gray-300'}`}>
                         {dayData.hours}h
                       </p>
-                      {dayData.status !== 'draft' && (
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full mt-1 inline-block font-medium ${TS_STATUS_STYLES[dayData.status]}`}>
-                          {dayData.status}
-                        </span>
-                      )}
+                      <div className="flex items-center justify-center gap-1 mt-1">
+                        {dayData.status !== 'draft' && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full inline-block font-medium ${TS_STATUS_STYLES[dayData.status]}`}>
+                            {dayData.status}
+                          </span>
+                        )}
+                        {locked && <Lock className="w-3 h-3 text-red-400" />}
+                      </div>
                     </button>
                   );
                 })}
@@ -565,13 +708,23 @@ export default function TimeSheet() {
                   <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${TS_STATUS_STYLES[tsStatus]}`}>
                     {tsStatus.charAt(0).toUpperCase() + tsStatus.slice(1)}
                   </span>
+                  {isHoliday(selectedDate) && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 font-medium flex items-center gap-1">
+                      <CalendarOff className="w-3 h-3" /> {isHoliday(selectedDate)}
+                    </span>
+                  )}
+                  {isDateLocked(selectedDate) && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 font-medium flex items-center gap-1">
+                      <Lock className="w-3 h-3" /> Locked
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 text-xs">
                   <span className="text-gray-500">
                     Billable: <strong className="text-emerald-600">{getBillableHours()}h</strong>
                   </span>
-                  <span className={`font-bold px-2 py-0.5 rounded ${getTotalHours() >= 8 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : getTotalHours() > 0 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-gray-100 text-gray-500'}`}>
-                    {getTotalHours() > 8 && <Zap className="w-3 h-3 inline mr-0.5" />}
+                  <span className={`font-bold px-2 py-0.5 rounded ${getTotalHours() >= 8.5 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : getTotalHours() > 0 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-gray-100 text-gray-500'}`}>
+                    {getTotalHours() > 8.5 && <Zap className="w-3 h-3 inline mr-0.5" />}
                     {getTotalHours()}h
                   </span>
                 </div>
@@ -633,11 +786,46 @@ export default function TimeSheet() {
                       <Briefcase className="w-4 h-4" /> Manage Projects
                     </button>
                   )}
+                  {/* Templates Dropdown */}
+                  <div className="relative">
+                    <button onClick={() => setShowTemplates(!showTemplates)}
+                      className="flex items-center gap-1 px-3 py-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg text-sm font-medium">
+                      <LayoutTemplate className="w-4 h-4" /> Templates <ChevronDown className="w-3 h-3" />
+                    </button>
+                    {showTemplates && (
+                      <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl shadow-xl z-20 w-64 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">Saved Templates</span>
+                          <button onClick={() => {
+                            const name = window.prompt('Template name:');
+                            if (name) saveTemplate(name);
+                          }} className="text-xs text-emerald-600 font-medium hover:underline">+ Save Current</button>
+                        </div>
+                        {templates.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2 text-center">No templates yet. Save your current entries as a template.</p>
+                        ) : (
+                          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                            {templates.map(t => (
+                              <div key={t.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 group">
+                                <button onClick={() => loadTemplate(t)} className="flex-1 text-left">
+                                  <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{t.name}</p>
+                                  <p className="text-[10px] text-gray-400">{t.entries.length} entries · {t.entries.map(e => e.project).filter(Boolean).join(', ')}</p>
+                                </button>
+                                <button onClick={() => deleteTemplate(t.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 ml-2">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                {getTotalHours() > 9 && (
+                {getTotalHours() > 9.5 && (
                   <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
                     <AlertCircle className="w-4 h-4 text-amber-500" />
-                    <span className="text-sm text-amber-700 dark:text-amber-300">Overtime: {(getTotalHours() - 8).toFixed(1)}h over standard 8h workday</span>
+                    <span className="text-sm text-amber-700 dark:text-amber-300">Overtime: {(getTotalHours() - 8.5).toFixed(1)}h over standard 8.5h workday</span>
                   </div>
                 )}
                 <div>
@@ -650,14 +838,19 @@ export default function TimeSheet() {
                   <div className="text-xs text-gray-400">
                     {tsStatus === 'submitted' && 'Submitted. Waiting for approval.'}
                     {tsStatus === 'approved' && <span className="text-green-600 font-medium">Approved by manager.</span>}
-                    {tsStatus === 'rejected' && <span className="text-red-600 font-medium">Rejected. Please revise and resubmit.</span>}
+                    {tsStatus === 'rejected' && (
+                      <span className="text-red-600 font-medium flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" /> Rejected. Please revise and resubmit.
+                      </span>
+                    )}
+                    {isDateLocked(selectedDate) && <span className="text-red-500 font-medium ml-2 flex items-center gap-1"><Lock className="w-3 h-3" /> Period locked by admin</span>}
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => handleSave('draft')} disabled={saving}
+                    <button onClick={() => handleSave('draft')} disabled={saving || isDateLocked(selectedDate)}
                       className="flex items-center gap-1.5 px-4 py-2 border border-emerald-300 text-emerald-700 dark:text-emerald-300 dark:border-emerald-700 rounded-xl font-medium hover:bg-emerald-50 dark:hover:bg-emerald-900/20 disabled:opacity-50 text-sm">
                       <Save className="w-4 h-4" /> Save Draft
                     </button>
-                    <button onClick={() => handleSave('submitted')} disabled={saving}
+                    <button onClick={() => handleSave('submitted')} disabled={saving || isDateLocked(selectedDate)}
                       className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-50 shadow text-sm">
                       <Send className="w-4 h-4" /> {saving ? 'Saving...' : 'Submit'}
                     </button>
@@ -763,7 +956,7 @@ export default function TimeSheet() {
                   return (
                     <div key={ts.date} className="flex-1 flex flex-col items-center gap-1 group" title={`${displayDate(ts.date)}: ${h}h`}>
                       <span className="text-[9px] text-gray-400 opacity-0 group-hover:opacity-100 transition">{h}h</span>
-                      <div className="w-full rounded-t transition-all" style={{ height: `${pct}%`, backgroundColor: h >= 8 ? '#10b981' : h > 0 ? '#f59e0b' : '#e5e7eb', minHeight: h > 0 ? '4px' : '2px' }} />
+                      <div className="w-full rounded-t transition-all" style={{ height: `${pct}%`, backgroundColor: h >= DAILY_HOURS ? '#10b981' : h > 0 ? '#f59e0b' : '#e5e7eb', minHeight: h > 0 ? '4px' : '2px' }} />
                       <span className="text-[7px] text-gray-400 -rotate-45 origin-top-left whitespace-nowrap">{ts.date.slice(5)}</span>
                     </div>
                   );
@@ -772,6 +965,114 @@ export default function TimeSheet() {
             ) : (
               <p className="text-sm text-gray-400 text-center py-8">No data for this period</p>
             )}
+          </div>
+
+          {/* Compliance & Utilization Metrics */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-5">
+              <h3 className="font-semibold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+                <Shield className="w-4 h-4 text-indigo-500" /> Compliance Metrics
+              </h3>
+              {(() => {
+                const today = new Date();
+                let rangeStart;
+                if (analyticsRange === 'week') { rangeStart = new Date(today); rangeStart.setDate(rangeStart.getDate() - 6); }
+                else if (analyticsRange === 'month') { rangeStart = new Date(today.getFullYear(), today.getMonth(), 1); }
+                else { rangeStart = new Date(today.getFullYear(), 0, 1); }
+                // Count working days in range
+                let workDays = 0;
+                const d = new Date(rangeStart);
+                while (d <= today) {
+                  const day = d.getDay();
+                  const dateStr = formatDate(d);
+                  if (day !== 0 && day !== 6 && !PUBLIC_HOLIDAYS[dateStr]) workDays++;
+                  d.setDate(d.getDate() + 1);
+                }
+                const filledDays = analyticsData.length;
+                const missingDays = Math.max(0, workDays - filledDays);
+                const fillRate = workDays > 0 ? ((filledDays / workDays) * 100).toFixed(0) : 0;
+                const underFilledDays = analyticsData.filter(ts => (ts.totalHours || 0) < DAILY_HOURS).length;
+                // Calculate streak (consecutive days filled from today backwards)
+                let streak = 0;
+                const checkDate = new Date(today);
+                while (true) {
+                  const dStr = formatDate(checkDate);
+                  const dayOfWeek = checkDate.getDay();
+                  if (dayOfWeek === 0 || dayOfWeek === 6 || PUBLIC_HOLIDAYS[dStr]) { checkDate.setDate(checkDate.getDate() - 1); continue; }
+                  if (analyticsData.find(ts => ts.date === dStr)) { streak++; checkDate.setDate(checkDate.getDate() - 1); }
+                  else break;
+                  if (streak > 365) break;
+                }
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">Fill Rate</span>
+                      <span className={`text-lg font-bold ${fillRate >= 90 ? 'text-green-600' : fillRate >= 70 ? 'text-amber-600' : 'text-red-600'}`}>{fillRate}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${fillRate >= 90 ? 'bg-green-500' : fillRate >= 70 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${fillRate}%` }} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <p className="text-xl font-bold text-gray-800 dark:text-white">{filledDays}</p>
+                        <p className="text-[10px] text-gray-500">Days Filled</p>
+                      </div>
+                      <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <p className={`text-xl font-bold ${missingDays > 0 ? 'text-red-600' : 'text-green-600'}`}>{missingDays}</p>
+                        <p className="text-[10px] text-gray-500">Missing Days</p>
+                      </div>
+                      <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <p className={`text-xl font-bold ${underFilledDays > 0 ? 'text-amber-600' : 'text-green-600'}`}>{underFilledDays}</p>
+                        <p className="text-[10px] text-gray-500">Under-filled ({`<${DAILY_HOURS}h`})</p>
+                      </div>
+                      <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <p className="text-xl font-bold text-indigo-600">{streak}</p>
+                        <p className="text-[10px] text-gray-500">Day Streak</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-5">
+              <h3 className="font-semibold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+                <Percent className="w-4 h-4 text-emerald-500" /> Utilization Dashboard
+              </h3>
+              {(() => {
+                const billableHours = totalBillable;
+                const nonBillableHours = totalAnalyticsHours - totalBillable;
+                const utilization = totalAnalyticsHours > 0 ? ((billableHours / totalAnalyticsHours) * 100).toFixed(1) : 0;
+                const targetUtilization = 75;
+                const overtimeHours = analyticsData.reduce((s, ts) => s + Math.max(0, (ts.totalHours || 0) - 9.5), 0);
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">Billable Utilization</span>
+                      <span className={`text-lg font-bold ${utilization >= targetUtilization ? 'text-green-600' : utilization >= 50 ? 'text-amber-600' : 'text-red-600'}`}>{utilization}%</span>
+                    </div>
+                    <div className="w-full h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden relative">
+                      <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.min(100, utilization)}%` }} />
+                      <div className="absolute top-0 h-full border-r-2 border-dashed border-gray-400" style={{ left: `${targetUtilization}%` }} title={`Target: ${targetUtilization}%`} />
+                    </div>
+                    <p className="text-[10px] text-gray-400">Target: {targetUtilization}% billable</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="text-center p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
+                        <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{billableHours.toFixed(1)}h</p>
+                        <p className="text-[10px] text-gray-500">Billable</p>
+                      </div>
+                      <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <p className="text-lg font-bold text-gray-700 dark:text-gray-300">{nonBillableHours.toFixed(1)}h</p>
+                        <p className="text-[10px] text-gray-500">Non-Billable</p>
+                      </div>
+                      <div className="text-center p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+                        <p className="text-lg font-bold text-amber-700 dark:text-amber-300">{overtimeHours.toFixed(1)}h</p>
+                        <p className="text-[10px] text-gray-500">Overtime</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         </div>
       )}
@@ -891,7 +1192,7 @@ export default function TimeSheet() {
                       className="w-full border rounded-lg px-3 py-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                       {LEAVE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                     </select>
-                  </div>
+                  </div>openRejectModal(ts
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">From</label>
@@ -991,8 +1292,17 @@ export default function TimeSheet() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-bold px-2 py-0.5 rounded ${ts.totalHours >= 8 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}`}>
+                      <span className={`text-sm font-bold px-2 py-0.5 rounded ${ts.totalHours >= 8.5 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}`}>
                         {ts.totalHours}h
+                  {ts.status === 'rejected' && ts.rejectionReason && (
+                    <div className="flex items-start gap-2 mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                      <MessageSquare className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-[10px] text-red-600 dark:text-red-400 font-medium">Rejection Reason:</p>
+                        <p className="text-xs text-red-700 dark:text-red-300">{ts.rejectionReason}</p>
+                      </div>
+                    </div>
+                  )}
                       </span>
                       {ts.status === 'submitted' && (
                         <>
@@ -1026,6 +1336,30 @@ export default function TimeSheet() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Rejection Reason Modal */}
+      {showRejectModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-red-500" /> Rejection Reason
+              </h2>
+              <button onClick={() => setShowRejectModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+              Rejecting timesheet for <strong>{rejectTarget?.displayName}</strong> on {rejectTarget?.date && displayDate(rejectTarget.date)}
+            </p>
+            <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={3}
+              placeholder="Provide a reason for rejection (optional but recommended)..."
+              className="w-full border rounded-lg px-3 py-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white mb-4" autoFocus />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowRejectModal(false)} className="px-4 py-2 border rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+              <button onClick={confirmReject} className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 shadow">Reject</button>
+            </div>
+          </div>
         </div>
       )}
 
