@@ -37,6 +37,7 @@ export default function StandupNotes() {
   const [allEmployees, setAllEmployees] = useState([]);
   const [memberSearch, setMemberSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [filter, setFilter] = useState('all');
   const searchRef = useRef(null);
   const [activeTab, setActiveTab] = useState('updates');
   const [messages, setMessages] = useState([]);
@@ -109,9 +110,7 @@ export default function StandupNotes() {
     setLoading(true);
     try {
       const data = await fetchStandupPages();
-      // Filter: only show pages where user is a member (case-insensitive)
-      const myPages = data.filter(p => (p.members || []).some(m => m.toLowerCase() === username.toLowerCase()));
-      setPages(myPages);
+      setPages(data);
     } catch (e) { console.error(e); }
     setLoading(false);
   }
@@ -254,17 +253,36 @@ export default function StandupNotes() {
           </button>
         </div>
 
-        {loading ? (
+        {/* Filter Tabs */}
+        <div className="flex gap-2 mb-4">
+          {[
+            { key: 'all', label: 'All' },
+            { key: 'mine', label: 'Created by Me' },
+            { key: 'shared', label: 'Shared with Me' },
+          ].map(f => (
+            <button key={f.key} onClick={() => setFilter(f.key)}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${filter === f.key ? 'bg-teal-600 text-white shadow' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {(() => {
+          const filtered = pages.filter(p => {
+            if (filter === 'mine') return p.createdBy?.toLowerCase() === username.toLowerCase();
+            if (filter === 'shared') return p.createdBy?.toLowerCase() !== username.toLowerCase() && (p.members || []).some(m => m.toLowerCase() === username.toLowerCase());
+            return true;
+          });
+          return loading ? (
           <div className="text-center text-gray-500 py-12">Loading...</div>
-        ) : pages.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="text-center py-16">
             <ClipboardList className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-500 dark:text-gray-400 text-lg">No standup pages yet</p>
-            <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Create one or ask a team member to add you</p>
+            <p className="text-gray-500 dark:text-gray-400 text-lg">No standup pages found</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {pages.map(page => (
+            {filtered.map(page => (
               <div
                 key={page.id}
                 onClick={() => openPage(page)}
@@ -301,7 +319,8 @@ export default function StandupNotes() {
               </div>
             ))}
           </div>
-        )}
+        );
+        })()}
 
         {/* Create Page Modal */}
         {showCreatePage && (

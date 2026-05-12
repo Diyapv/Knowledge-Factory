@@ -32,6 +32,7 @@ export default function MeetingMinutes() {
   const [actionForm, setActionForm] = useState({ title: '', assignee: '', dueDate: '', status: 'pending' });
   const [editingAction, setEditingAction] = useState(null);
   const [form, setForm] = useState({ title: '', date: '', time: '', attendees: [], notes: '' });
+  const [filter, setFilter] = useState('all');
 
   const currentUser = user || {};
   const username = currentUser.name || currentUser.username || '';
@@ -50,12 +51,7 @@ export default function MeetingMinutes() {
     setLoading(true);
     try {
       const data = await fetchMeetings();
-      // Only show meetings where user is an attendee or the creator
-      const myMeetings = data.filter(m =>
-        m.createdBy?.toLowerCase() === username.toLowerCase() ||
-        (m.attendees || []).some(a => a.toLowerCase() === username.toLowerCase())
-      );
-      setMeetings(myMeetings);
+      setMeetings(data);
     }
     catch (e) { console.error(e); }
     setLoading(false);
@@ -197,16 +193,36 @@ export default function MeetingMinutes() {
           </button>
         </div>
 
-        {loading ? (
+        {/* Filter Tabs */}
+        <div className="flex gap-2 mb-4">
+          {[
+            { key: 'all', label: 'All' },
+            { key: 'mine', label: 'Created by Me' },
+            { key: 'shared', label: 'Shared with Me' },
+          ].map(f => (
+            <button key={f.key} onClick={() => setFilter(f.key)}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${filter === f.key ? 'bg-violet-600 text-white shadow' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {(() => {
+          const filtered = meetings.filter(m => {
+            if (filter === 'mine') return m.createdBy?.toLowerCase() === username.toLowerCase();
+            if (filter === 'shared') return m.createdBy?.toLowerCase() !== username.toLowerCase() && (m.attendees || []).some(a => a.toLowerCase() === username.toLowerCase());
+            return true;
+          });
+          return loading ? (
           <div className="text-center text-gray-500 py-12">Loading...</div>
-        ) : meetings.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="text-center py-16">
             <FileText className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-500 dark:text-gray-400 text-lg">No meeting minutes yet</p>
+            <p className="text-gray-500 dark:text-gray-400 text-lg">No meetings found</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {meetings.map(m => {
+            {filtered.map(m => {
               const totalActions = (m.actionItems || []).length;
               const doneActions = (m.actionItems || []).filter(a => a.status === 'done').length;
               return (
@@ -252,7 +268,8 @@ export default function MeetingMinutes() {
               );
             })}
           </div>
-        )}
+        );
+        })()}
 
         {/* Create Modal */}
         {showCreate && renderMeetingForm()}
