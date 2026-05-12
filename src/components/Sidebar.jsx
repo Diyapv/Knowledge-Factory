@@ -4,7 +4,7 @@ import {
   Factory, LayoutDashboard, Upload, Search, FileText,
   Code2, Settings, BarChart3,
   ChevronsLeft, ChevronsRight, HelpCircle, ClipboardCheck, FileEdit,
-  LogOut, ShieldCheck, UserCheck, UserPen, Heart, Activity, BookOpen, StickyNote, FileUser, MessageSquare, ListChecks, Monitor, Award, Briefcase, Contact, Vote, CalendarDays, Megaphone, CalendarCheck, Link, ClipboardList, NotebookPen, PartyPopper, Lightbulb, Brain, Camera
+  LogOut, ShieldCheck, UserCheck, UserPen, Heart, Activity, BookOpen, StickyNote, FileUser, MessageSquare, ListChecks, Monitor, Award, Briefcase, Contact, Vote, CalendarDays, Megaphone, CalendarCheck, Link, ClipboardList, NotebookPen, PartyPopper, Lightbulb, Brain, Camera, Spade
 } from 'lucide-react';
 import { fetchStats, fetchAssets } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -61,6 +61,7 @@ const getNavSections = (role) => {
         { to: '/ideas', icon: Lightbulb, label: 'Idea Box' },
         { to: '/trivia', icon: Brain, label: 'Trivia Arena' },
         { to: '/gallery', icon: Camera, label: 'Photo Gallery' },
+        { to: '/poker', icon: Spade, label: 'Planning Poker' },
         ...(role === 'admin' ? [
           { to: '/knowledge', icon: BookOpen, label: 'EB Knowledge Base' },
         ] : []),

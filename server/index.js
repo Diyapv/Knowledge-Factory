@@ -37,6 +37,7 @@ const {
   createIdea, getAllIdeas, upvoteIdea, setIdeaOfTheMonth, updateIdeaStatus, deleteIdea, addIdeaComment,
   createQuiz, getAllQuizzes, getQuiz, updateQuiz, deleteQuiz, submitQuizAttempt, getQuizLeaderboard,
   createPhoto, getAllPhotos, deletePhoto, togglePhotoReaction, addPhotoComment,
+  createPokerStory, getAllPokerStories, getPokerStory, votePokerStory, closePokerStory, reopenPokerStory, deletePokerStory,
 } = require('./services/qdrant');
 const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
@@ -1842,6 +1843,43 @@ app.post('/api/gallery/:id/reaction', async (req, res) => {
 app.post('/api/gallery/:id/comments', async (req, res) => {
   try { res.json(await addPhotoComment(req.params.id, req.body)); }
   catch (err) { res.status(err.message === 'Photo not found' ? 404 : 500).json({ error: err.message }); }
+});
+
+// ── Sprint Planning / Poker Points ───────────────────────
+// ── Planning Poker ──
+app.post('/api/poker', async (req, res) => {
+  try { res.json(await createPokerStory(req.body)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/poker', async (req, res) => {
+  try { res.json(await getAllPokerStories()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/poker/:id', async (req, res) => {
+  try { res.json(await getPokerStory(req.params.id)); }
+  catch (err) { res.status(err.message === 'Story not found' ? 404 : 500).json({ error: err.message }); }
+});
+
+app.post('/api/poker/:id/vote', async (req, res) => {
+  try { res.json(await votePokerStory(req.params.id, req.body)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/poker/:id/close', async (req, res) => {
+  try { res.json(await closePokerStory(req.params.id)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/poker/:id/reopen', async (req, res) => {
+  try { res.json(await reopenPokerStory(req.params.id)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/poker/:id', async (req, res) => {
+  try { await deletePokerStory(req.params.id); res.json({ deleted: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── Final Server Start ──────────────────────────────────

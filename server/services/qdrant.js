@@ -28,6 +28,7 @@ const WISHES_COLLECTION = 'wishes';
 const IDEAS_COLLECTION = 'ideas';
 const QUIZZES_COLLECTION = 'quizzes';
 const GALLERY_COLLECTION = 'photo_gallery';
+const SPRINTS_COLLECTION = 'sprint_planning';
 const VECTOR_SIZE = 768;
 
 const client = new QdrantClient({ url: 'http://localhost:6333', checkCompatibility: false });
@@ -277,6 +278,16 @@ async function ensureCollection() {
       vectors: { size: 4, distance: 'Cosine' },
     });
     console.log(`Created Qdrant collection: ${GALLERY_COLLECTION}`);
+  }
+
+  // Sprint Planning collection
+  try {
+    await client.getCollection(SPRINTS_COLLECTION);
+  } catch {
+    await client.createCollection(SPRINTS_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${SPRINTS_COLLECTION}`);
   }
 }
 
@@ -2065,6 +2076,86 @@ async function addPhotoComment(photoId, { username, name, text }) {
   return { id: photoId, ...payload };
 }
 
+// ── Sprint Planning / Poker Points ──────────────────────────
+// ── Planning Poker (Story Point Estimation) ──────────────────
+async function createPokerStory({ title, createdBy, createdByName, participants }) {
+  const id = Date.now();
+  const payload = {
+    title,
+    participants: participants || [],
+    votes: {},
+    status: 'open',
+    createdBy,
+    createdByName,
+    createdAt: new Date().toISOString(),
+  };
+  await client.upsert(SPRINTS_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return { id, ...payload };
+}
+
+async function getAllPokerStories() {
+  const result = await client.scroll(SPRINTS_COLLECTION, { limit: 1000, with_payload: true });
+  return result.points.map(p => ({ id: p.id, ...p.payload }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+async function getPokerStory(storyId) {
+  const existing = await client.retrieve(SPRINTS_COLLECTION, { ids: [Number(storyId)], with_payload: true });
+  if (!existing.length) throw new Error('Story not found');
+  return { id: existing[0].id, ...existing[0].payload };
+}
+
+async function votePokerStory(storyId, { username, name, points }) {
+  const existing = await client.retrieve(SPRINTS_COLLECTION, { ids: [Number(storyId)], with_payload: true });
+  if (!existing.length) throw new Error('Story not found');
+  const payload = existing[0].payload;
+  if (payload.status === 'closed') throw new Error('Voting is closed');
+  payload.votes[username] = { name, points };
+  await client.upsert(SPRINTS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(storyId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: Number(storyId), ...payload };
+}
+
+async function closePokerStory(storyId) {
+  const existing = await client.retrieve(SPRINTS_COLLECTION, { ids: [Number(storyId)], with_payload: true });
+  if (!existing.length) throw new Error('Story not found');
+  const payload = existing[0].payload;
+  payload.status = 'closed';
+  const numericVotes = Object.values(payload.votes).map(v => v.points).filter(p => p !== '?').map(Number);
+  if (numericVotes.length > 0) {
+    payload.average = Math.round(numericVotes.reduce((a, b) => a + b, 0) / numericVotes.length * 10) / 10;
+  }
+  await client.upsert(SPRINTS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(storyId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: Number(storyId), ...payload };
+}
+
+async function reopenPokerStory(storyId) {
+  const existing = await client.retrieve(SPRINTS_COLLECTION, { ids: [Number(storyId)], with_payload: true });
+  if (!existing.length) throw new Error('Story not found');
+  const payload = existing[0].payload;
+  payload.status = 'open';
+  payload.votes = {};
+  payload.average = null;
+  await client.upsert(SPRINTS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(storyId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: Number(storyId), ...payload };
+}
+
+async function deletePokerStory(storyId) {
+  await client.delete(SPRINTS_COLLECTION, { wait: true, points: [Number(storyId)] });
+  return { deleted: true };
+}
+
 module.exports = {
   ensureCollection,
   upsertAsset,
@@ -2194,4 +2285,11 @@ module.exports = {
   deletePhoto,
   togglePhotoReaction,
   addPhotoComment,
+  createPokerStory,
+  getAllPokerStories,
+  getPokerStory,
+  votePokerStory,
+  closePokerStory,
+  reopenPokerStory,
+  deletePokerStory,
 };

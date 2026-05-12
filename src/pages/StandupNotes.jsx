@@ -290,6 +290,14 @@ export default function StandupNotes() {
                   <span className="mx-1">&middot;</span>
                   <span>by {page.displayName}</span>
                 </div>
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {(page.members || []).slice(0, 5).map(m => (
+                    <span key={m} className="px-2 py-0.5 bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-xs rounded-full">{m}</span>
+                  ))}
+                  {(page.members || []).length > 5 && (
+                    <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs rounded-full">+{(page.members || []).length - 5} more</span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -420,8 +428,8 @@ export default function StandupNotes() {
         </button>
         <ClipboardList className="w-6 h-6 text-teal-500" />
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">{activePage.name}</h1>
-        {isOwner && (
-          <div className="flex gap-2 ml-auto">
+        <div className="flex gap-2 ml-auto">
+          {isOwner && (
             <button
               onClick={() => {
                 const link = `${window.location.origin}/standups?page=${activePage.id}`;
@@ -433,20 +441,22 @@ export default function StandupNotes() {
             >
               <LinkIcon className="w-4 h-4" /> Copy Link
             </button>
-            <button
-              onClick={() => setShowMembers(true)}
-              className="flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-            >
-              <Users className="w-4 h-4" /> Members ({(activePage.members || []).length})
-            </button>
+          )}
+          <button
+            onClick={() => setShowMembers(true)}
+            className="flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+          >
+            <Users className="w-4 h-4" /> Members ({(activePage.members || []).length})
+          </button>
+          {isOwner && (
             <button
               onClick={() => handleDeletePage(activePage.id)}
               className="text-sm px-3 py-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
             >
               <Trash2 className="w-4 h-4" />
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
       {activePage.description && (
         <p className="text-sm text-gray-500 dark:text-gray-400 ml-10 mb-4">{activePage.description}</p>
@@ -668,66 +678,73 @@ export default function StandupNotes() {
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-sm shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <Users className="w-5 h-5 text-teal-500" /> Manage Members
+                <Users className="w-5 h-5 text-teal-500" /> {isOwner ? 'Manage Members' : 'Group Members'}
               </h2>
               <button onClick={() => setShowMembers(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            {/* @ mention to add */}
-            <div className="relative mb-3">
-              <div className="flex items-center border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700">
-                <AtSign className="w-4 h-4 text-gray-400 ml-2" />
-                <input
-                  ref={searchRef}
-                  type="text"
-                  value={memberSearch}
-                  onChange={e => { setMemberSearch(e.target.value); setShowSuggestions(true); }}
-                  onFocus={() => setShowSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                  placeholder="Type @ to add member..."
-                  className="flex-1 p-2 bg-transparent text-gray-900 dark:text-white outline-none text-sm"
-                />
-              </div>
-              {showSuggestions && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-40 overflow-y-auto z-10">
-                  {getFilteredSuggestions(activePage.members || []).length === 0 ? (
-                    <div className="px-3 py-2 text-xs text-gray-400">No employees found</div>
-                  ) : (
-                    getFilteredSuggestions(activePage.members || []).map(emp => (
-                      <button
-                        key={emp.id || emp.name}
-                        type="button"
-                        onMouseDown={e => e.preventDefault()}
-                        onClick={() => {
-                          const newMembers = [...(activePage.members || []), emp.name];
-                          handleUpdateMembers(newMembers);
-                          setMemberSearch('');
-                          setShowSuggestions(false);
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-teal-50 dark:hover:bg-teal-900/30 flex items-center gap-2"
-                      >
-                        <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-800 flex items-center justify-center text-xs font-bold text-teal-700 dark:text-teal-300">
-                          {emp.name[0]}
-                        </div>
-                        <span>{emp.name}</span>
-                        {emp.role && <span className="text-xs text-gray-400 ml-auto">{emp.role}</span>}
-                      </button>
-                    ))
-                  )}
+            {/* @ mention to add — owner only */}
+            {isOwner && (
+              <div className="relative mb-3">
+                <div className="flex items-center border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700">
+                  <AtSign className="w-4 h-4 text-gray-400 ml-2" />
+                  <input
+                    ref={searchRef}
+                    type="text"
+                    value={memberSearch}
+                    onChange={e => { setMemberSearch(e.target.value); setShowSuggestions(true); }}
+                    onFocus={() => setShowSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                    placeholder="Type @ to add member..."
+                    className="flex-1 p-2 bg-transparent text-gray-900 dark:text-white outline-none text-sm"
+                  />
                 </div>
-              )}
-            </div>
+                {showSuggestions && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-40 overflow-y-auto z-10">
+                    {getFilteredSuggestions(activePage.members || []).length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-gray-400">No employees found</div>
+                    ) : (
+                      getFilteredSuggestions(activePage.members || []).map(emp => (
+                        <button
+                          key={emp.id || emp.name}
+                          type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => {
+                            const newMembers = [...(activePage.members || []), emp.name];
+                            handleUpdateMembers(newMembers);
+                            setMemberSearch('');
+                            setShowSuggestions(false);
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-teal-50 dark:hover:bg-teal-900/30 flex items-center gap-2"
+                        >
+                          <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-800 flex items-center justify-center text-xs font-bold text-teal-700 dark:text-teal-300">
+                            {emp.name[0]}
+                          </div>
+                          <span>{emp.name}</span>
+                          {emp.role && <span className="text-xs text-gray-400 ml-auto">{emp.role}</span>}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {/* Current members list */}
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {(activePage.members || []).map(memberName => {
                 const isCreator = activePage.createdBy === memberName;
                 return (
                   <div key={memberName} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <span className="text-sm text-gray-700 dark:text-gray-300">
-                      {memberName} {isCreator && <span className="text-xs text-teal-500">(owner)</span>}
-                    </span>
-                    {!isCreator && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center text-teal-700 dark:text-teal-300 text-xs font-bold">
+                        {memberName[0]?.toUpperCase()}
+                      </div>
+                      <span className="text-sm text-gray-700 dark:text-gray-300">
+                        {memberName} {isCreator && <span className="text-xs text-teal-500">(owner)</span>}
+                      </span>
+                    </div>
+                    {isOwner && !isCreator && (
                       <button
                         onClick={() => {
                           const newMembers = (activePage.members || []).filter(m => m !== memberName);

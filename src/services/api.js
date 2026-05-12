@@ -1215,3 +1215,53 @@ export async function addPhotoCommentApi(id, data) {
   if (!res.ok) throw new Error('Failed to add comment');
   return res.json();
 }
+
+// ── Planning Poker ──────────────────────────
+export async function fetchPokerStories() {
+  const res = await fetch(`${API_URL}/poker`);
+  return res.json();
+}
+
+export async function fetchPokerStory(id) {
+  const res = await fetch(`${API_URL}/poker/${id}`);
+  if (!res.ok) throw new Error('Story not found');
+  return res.json();
+}
+
+export async function createPokerStoryApi(data) {
+  const res = await fetch(`${API_URL}/poker`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create story');
+  return res.json();
+}
+
+export async function votePokerApi(storyId, data) {
+  const res = await fetch(`${API_URL}/poker/${storyId}/vote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to vote');
+  return res.json();
+}
+
+export async function closePokerApi(storyId) {
+  const res = await fetch(`${API_URL}/poker/${storyId}/close`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to close voting');
+  return res.json();
+}
+
+export async function reopenPokerApi(storyId) {
+  const res = await fetch(`${API_URL}/poker/${storyId}/reopen`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to reopen');
+  return res.json();
+}
+
+export async function deletePokerApi(storyId) {
+  const res = await fetch(`${API_URL}/poker/${storyId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete');
+  return res.json();
+}

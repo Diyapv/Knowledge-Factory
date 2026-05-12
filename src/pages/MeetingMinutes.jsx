@@ -223,6 +223,16 @@ export default function MeetingMinutes() {
                         {m.time && <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{m.time}</span>}
                         <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" />{(m.attendees || []).length} attendees</span>
                       </div>
+                      {(m.attendees || []).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {(m.attendees || []).slice(0, 5).map(a => (
+                            <span key={a} className="px-2 py-0.5 bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs rounded-full">{a}</span>
+                          ))}
+                          {(m.attendees || []).length > 5 && (
+                            <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs rounded-full">+{(m.attendees || []).length - 5} more</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       {totalActions > 0 && (

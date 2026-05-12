@@ -37,6 +37,7 @@ import Celebrations from './pages/Celebrations';
 import IdeaBox from './pages/IdeaBox';
 import TriviaArena from './pages/TriviaArena';
 import PhotoGallery from './pages/PhotoGallery';
+import PlanningPoker from './pages/PlanningPoker';
 
 function AppRoutes() {
   const { user, isAdmin } = useAuth();
@@ -80,6 +81,7 @@ function AppRoutes() {
         <Route path="/ideas" element={<IdeaBox />} />
         <Route path="/trivia" element={<TriviaArena />} />
         <Route path="/gallery" element={<PhotoGallery />} />
+        <Route path="/poker" element={<PlanningPoker />} />
       </Route>
     </Routes>
   );
