@@ -1265,3 +1265,69 @@ export async function deletePokerApi(storyId) {
   if (!res.ok) throw new Error('Failed to delete');
   return res.json();
 }
+
+// ── Timesheet Management ──────────────────────────
+export async function saveTimesheetApi(data) {
+  const res = await fetch(`${API_URL}/timesheets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to save timesheet');
+  return res.json();
+}
+
+export async function fetchTimesheetByDate(username, date) {
+  const res = await fetch(`${API_URL}/timesheets/${encodeURIComponent(username)}/${date}`);
+  return res.json();
+}
+
+export async function fetchUserTimesheets(username, start, end) {
+  const params = new URLSearchParams();
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  const res = await fetch(`${API_URL}/timesheets/user/${encodeURIComponent(username)}?${params}`);
+  return res.json();
+}
+
+export async function fetchAllTimesheetsByDate(date) {
+  const res = await fetch(`${API_URL}/timesheets/date/${date}`);
+  return res.json();
+}
+
+// ── Leave Requests ──────────────────────────
+export async function createLeaveRequestApi(data) {
+  const res = await fetch(`${API_URL}/leave-requests`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create leave request');
+  return res.json();
+}
+
+export async function fetchAllLeaveRequests() {
+  const res = await fetch(`${API_URL}/leave-requests`);
+  return res.json();
+}
+
+export async function fetchUserLeaveRequests(username) {
+  const res = await fetch(`${API_URL}/leave-requests/user/${username}`);
+  return res.json();
+}
+
+export async function updateLeaveRequestApi(id, data) {
+  const res = await fetch(`${API_URL}/leave-requests/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update leave request');
+  return res.json();
+}
+
+export async function deleteLeaveRequestApi(id) {
+  const res = await fetch(`${API_URL}/leave-requests/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete leave request');
+  return res.json();
+}

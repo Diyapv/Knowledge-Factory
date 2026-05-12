@@ -29,6 +29,8 @@ const IDEAS_COLLECTION = 'ideas';
 const QUIZZES_COLLECTION = 'quizzes';
 const GALLERY_COLLECTION = 'photo_gallery';
 const SPRINTS_COLLECTION = 'sprint_planning';
+const TIMESHEETS_COLLECTION = 'timesheets';
+const LEAVE_REQUESTS_COLLECTION = 'leave_requests';
 const VECTOR_SIZE = 768;
 
 const client = new QdrantClient({ url: 'http://localhost:6333', checkCompatibility: false });
@@ -288,6 +290,26 @@ async function ensureCollection() {
       vectors: { size: 4, distance: 'Cosine' },
     });
     console.log(`Created Qdrant collection: ${SPRINTS_COLLECTION}`);
+  }
+
+  // Timesheets collection
+  try {
+    await client.getCollection(TIMESHEETS_COLLECTION);
+  } catch {
+    await client.createCollection(TIMESHEETS_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${TIMESHEETS_COLLECTION}`);
+  }
+
+  // Leave Requests collection
+  try {
+    await client.getCollection(LEAVE_REQUESTS_COLLECTION);
+  } catch {
+    await client.createCollection(LEAVE_REQUESTS_COLLECTION, {
+      vectors: { size: 4, distance: 'Cosine' },
+    });
+    console.log(`Created Qdrant collection: ${LEAVE_REQUESTS_COLLECTION}`);
   }
 }
 
@@ -1223,6 +1245,11 @@ async function saveProfile(username, fields) {
   return { id, ...payload };
 }
 
+async function getAllProfiles() {
+  const result = await client.scroll(PROFILES_COLLECTION, { limit: 5000, with_payload: true });
+  return result.points.map(p => ({ id: p.id, ...p.payload }));
+}
+
 // Normalize skills: supports both old format ["React"] and new format [{name,rating}]
 function normalizeSkills(skills) {
   if (!skills || !Array.isArray(skills)) return [];
@@ -2156,6 +2183,113 @@ async function deletePokerStory(storyId) {
   return { deleted: true };
 }
 
+// ── Timesheet Management ──────────────────────────────────
+async function saveTimesheet(username, displayName, { date, entries, totalHours, notes, status, submittedAt }) {
+  // Stable ID per user+date
+  const key = `ts_${username}_${date}`;
+  let id = 0;
+  for (let i = 0; i < key.length; i++) id = ((id << 5) - id + key.charCodeAt(i)) | 0;
+  id = Math.abs(id);
+  const payload = {
+    username, displayName,
+    date,
+    entries: entries || [], // [{ project, task, hours, description, billable, category }]
+    totalHours: totalHours || 0,
+    notes: notes || '',
+    status: status || 'draft', // draft | submitted | approved | rejected
+    submittedAt: submittedAt || null,
+    updatedAt: new Date().toISOString(),
+  };
+  await client.upsert(TIMESHEETS_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return { id, ...payload };
+}
+
+async function getTimesheetByDate(username, date) {
+  const key = `ts_${username}_${date}`;
+  let id = 0;
+  for (let i = 0; i < key.length; i++) id = ((id << 5) - id + key.charCodeAt(i)) | 0;
+  id = Math.abs(id);
+  try {
+    const result = await client.retrieve(TIMESHEETS_COLLECTION, { ids: [id], with_payload: true });
+    if (result.length && result[0].payload.username === username) return { id: result[0].id, ...result[0].payload };
+  } catch {}
+  return null;
+}
+
+async function getUserTimesheets(username, startDate, endDate) {
+  const result = await client.scroll(TIMESHEETS_COLLECTION, { limit: 5000, with_payload: true });
+  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
+    .filter(t => t.username === username && (!startDate || t.date >= startDate) && (!endDate || t.date <= endDate))
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+async function getAllTimesheets(date) {
+  const result = await client.scroll(TIMESHEETS_COLLECTION, { limit: 5000, with_payload: true });
+  let sheets = (result.points || []).map(p => ({ id: p.id, ...p.payload }));
+  if (date) sheets = sheets.filter(t => t.date === date);
+  return sheets.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+}
+
+// ── Leave Requests ──────────────────────────────────
+async function createLeaveRequest(username, displayName, { type, startDate, endDate, reason }) {
+  const id = Date.now();
+  const payload = {
+    username, displayName,
+    type, // 'casual' | 'sick' | 'earned' | 'wfh' | 'comp-off'
+    startDate, endDate,
+    days: Math.max(1, Math.ceil((new Date(endDate) - new Date(startDate)) / 86400000) + 1),
+    reason: reason || '',
+    status: 'pending', // 'pending' | 'approved' | 'rejected'
+    approvedBy: null,
+    approvedByName: null,
+    comment: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await client.upsert(LEAVE_REQUESTS_COLLECTION, {
+    wait: true,
+    points: [{ id, vector: [0, 0, 0, 0], payload }],
+  });
+  return { id, ...payload };
+}
+
+async function getAllLeaveRequests() {
+  const result = await client.scroll(LEAVE_REQUESTS_COLLECTION, { limit: 5000, with_payload: true });
+  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+async function getUserLeaveRequests(username) {
+  const result = await client.scroll(LEAVE_REQUESTS_COLLECTION, { limit: 5000, with_payload: true });
+  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
+    .filter(r => r.username === username)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+async function updateLeaveRequest(requestId, { status, approvedBy, approvedByName, comment }) {
+  const existing = await client.retrieve(LEAVE_REQUESTS_COLLECTION, { ids: [Number(requestId)], with_payload: true });
+  if (!existing.length) throw new Error('Leave request not found');
+  const payload = {
+    ...existing[0].payload,
+    status, approvedBy, approvedByName,
+    comment: comment || '',
+    updatedAt: new Date().toISOString(),
+  };
+  await client.upsert(LEAVE_REQUESTS_COLLECTION, {
+    wait: true,
+    points: [{ id: Number(requestId), vector: [0, 0, 0, 0], payload }],
+  });
+  return { id: Number(requestId), ...payload };
+}
+
+async function deleteLeaveRequest(requestId) {
+  await client.delete(LEAVE_REQUESTS_COLLECTION, { wait: true, points: [Number(requestId)] });
+  return { deleted: true };
+}
+
 module.exports = {
   ensureCollection,
   upsertAsset,
@@ -2222,6 +2356,7 @@ module.exports = {
   searchEmployeesBySkill,
   getProfile,
   saveProfile,
+  getAllProfiles,
   createPoll,
   getAllPolls,
   votePoll,
@@ -2292,4 +2427,13 @@ module.exports = {
   closePokerStory,
   reopenPokerStory,
   deletePokerStory,
+  saveTimesheet,
+  getTimesheetByDate,
+  getUserTimesheets,
+  getAllTimesheets,
+  createLeaveRequest,
+  getAllLeaveRequests,
+  getUserLeaveRequests,
+  updateLeaveRequest,
+  deleteLeaveRequest,
 };

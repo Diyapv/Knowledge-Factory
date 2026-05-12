@@ -22,7 +22,7 @@ const {
   createJob, getAllJobs, getJobById, applyToJob, updateJobStatus, updateApplicantStatus, deleteJob,
   addEmployee, getAllEmployees, getEmployeeById, updateEmployee, deleteEmployee,
   searchEmployeesBySkill,
-  getProfile, saveProfile,
+  getProfile, saveProfile, getAllProfiles,
   createPoll, getAllPolls, votePoll, deletePoll, closePoll,
   setLeaveStatus, getAllLeaveStatuses, getUserLeaveHistory,
   createAnnouncement, getAllAnnouncements, toggleAnnouncementPin, deleteAnnouncement, updateAnnouncement,
@@ -38,6 +38,8 @@ const {
   createQuiz, getAllQuizzes, getQuiz, updateQuiz, deleteQuiz, submitQuizAttempt, getQuizLeaderboard,
   createPhoto, getAllPhotos, deletePhoto, togglePhotoReaction, addPhotoComment,
   createPokerStory, getAllPokerStories, getPokerStory, votePokerStory, closePokerStory, reopenPokerStory, deletePokerStory,
+  saveTimesheet, getTimesheetByDate, getUserTimesheets, getAllTimesheets,
+  createLeaveRequest, getAllLeaveRequests, getUserLeaveRequests, updateLeaveRequest, deleteLeaveRequest,
 } = require('./services/qdrant');
 const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
@@ -1666,12 +1668,18 @@ app.delete('/api/meetings/:meetingId/actions/:actionId', async (req, res) => {
 app.get('/api/celebrations', async (req, res) => {
   try {
     const employees = await getAllEmployees();
+    const profiles = await getAllProfiles();
     const today = new Date();
     const todayMD = String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
 
+    // Build a set of employee emails/names that already have DOB from employees collection
+    const empWithDob = new Set();
     const celebrations = [];
+
     for (const emp of employees) {
       if (emp.dateOfBirth) {
+        empWithDob.add((emp.email || '').toLowerCase());
+        empWithDob.add((emp.name || '').toLowerCase());
         const [y, m, d] = emp.dateOfBirth.split('-');
         const md = m + '-' + d;
         const thisYearBday = new Date(today.getFullYear(), Number(m) - 1, Number(d));
@@ -1711,6 +1719,33 @@ app.get('/api/celebrations', async (req, res) => {
         }
       }
     }
+
+    // Also check user_profiles for DOBs not already covered by employees
+    for (const prof of profiles) {
+      if (!prof.dateOfBirth) continue;
+      const profEmail = (prof.email || '').toLowerCase();
+      const profName = (prof.fullName || prof.username || '').toLowerCase();
+      if (empWithDob.has(profEmail) || empWithDob.has(profName)) continue;
+
+      const [y, m, d] = prof.dateOfBirth.split('-');
+      if (!m || !d) continue;
+      const md = m + '-' + d;
+      const thisYearBday = new Date(today.getFullYear(), Number(m) - 1, Number(d));
+      const diff = Math.round((thisYearBday - today) / 86400000);
+      celebrations.push({
+        type: 'birthday',
+        name: prof.fullName || prof.username || 'Unknown',
+        email: prof.email || '',
+        department: prof.team || '',
+        designation: prof.role || '',
+        date: prof.dateOfBirth,
+        monthDay: md,
+        daysUntil: diff < 0 ? diff + 365 : diff,
+        isToday: md === todayMD,
+        age: today.getFullYear() - Number(y),
+      });
+    }
+
     res.json(celebrations);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1879,6 +1914,61 @@ app.post('/api/poker/:id/reopen', async (req, res) => {
 
 app.delete('/api/poker/:id', async (req, res) => {
   try { await deletePokerStory(req.params.id); res.json({ deleted: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Timesheet Routes ──
+app.post('/api/timesheets', async (req, res) => {
+  try {
+    const { username, displayName, date, entries, totalHours, notes, status, submittedAt } = req.body;
+    res.json(await saveTimesheet(username, displayName, { date, entries, totalHours, notes, status, submittedAt }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/timesheets/user/:username', async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    res.json(await getUserTimesheets(req.params.username, start, end));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/timesheets/date/:date', async (req, res) => {
+  try { res.json(await getAllTimesheets(req.params.date)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/timesheets/:username/:date', async (req, res) => {
+  try {
+    const ts = await getTimesheetByDate(req.params.username, req.params.date);
+    res.json(ts || { entries: [], totalHours: 0 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Leave Request Routes ──
+app.post('/api/leave-requests', async (req, res) => {
+  try {
+    const { username, displayName, type, startDate, endDate, reason } = req.body;
+    res.json(await createLeaveRequest(username, displayName, { type, startDate, endDate, reason }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/leave-requests', async (req, res) => {
+  try { res.json(await getAllLeaveRequests()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/leave-requests/user/:username', async (req, res) => {
+  try { res.json(await getUserLeaveRequests(req.params.username)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/leave-requests/:id', async (req, res) => {
+  try { res.json(await updateLeaveRequest(req.params.id, req.body)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/leave-requests/:id', async (req, res) => {
+  try { await deleteLeaveRequest(req.params.id); res.json({ deleted: true }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
