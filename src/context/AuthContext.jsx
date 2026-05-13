@@ -156,13 +156,12 @@ export function AuthProvider({ children }) {
   // Local username/password login
   // First checks hardcoded admin/reviewer accounts, then employee directory
   const [employeeList, setEmployeeList] = useState([]);
-  const [employeesLoaded, setEmployeesLoaded] = useState(false);
 
   useEffect(() => {
     fetch(`http://${window.location.hostname}:3001/api/employees`)
       .then(r => r.json())
-      .then(data => { setEmployeeList(data); setEmployeesLoaded(true); })
-      .catch(() => { setEmployeesLoaded(true); });
+      .then(data => setEmployeeList(data))
+      .catch(() => {});
   }, []);
 
   const login = (username, password) => {
@@ -175,11 +174,8 @@ export function AuthProvider({ children }) {
     }
 
     // Check employee directory by email
-    // Username: email (e.g. aarti.patil@elektrobit.com) or firstname.lastname or firstname
+    // Username: email (e.g. aarti.patil@eb.com) or firstname.lastname or firstname
     // Password: firstname + "123"
-    if (!employeesLoaded) {
-      return { success: false, error: 'Loading employee directory, please try again in a moment.' };
-    }
     const input = username.toLowerCase().trim();
     let emp = null;
 
@@ -270,7 +266,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider value={{
       user, login, loginWithSSO, logout,
       isAdmin, isReviewer, isApprover,
-      ssoEnabled, ssoLoading, ssoError, employeesLoaded,
+      ssoEnabled, ssoLoading, ssoError,
     }}>
       {children}
     </AuthContext.Provider>

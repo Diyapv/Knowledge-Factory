@@ -23,7 +23,6 @@ export default function Settings() {
   const [role, setRole] = useState('Contributor');
   const [team, setTeam] = useState('');
   const [bio, setBio] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
   const [skills, setSkills] = useState([]);
   const [newSkill, setNewSkill] = useState('');
   const [newRating, setNewRating] = useState(3);
@@ -45,7 +44,6 @@ export default function Settings() {
         setRole(profile.role || user.role || 'Contributor');
         setTeam(profile.team || '');
         setBio(profile.bio || '');
-        setDateOfBirth(profile.dateOfBirth || '');
         setSkills(profile.skills || []);
       } else {
         setFullName(user.name || '');
@@ -64,7 +62,7 @@ export default function Settings() {
     setSaveError('');
     try {
       await saveProfileApi(user.username, {
-        fullName, email, role, team, bio, dateOfBirth,
+        fullName, email, role, team, bio,
         skills: skills.filter(s => s.name.trim()),
       });
       setSaved(true);
@@ -150,32 +148,6 @@ export default function Settings() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Team</label>
                     <input type="text" value={team} onChange={e => setTeam(e.target.value)} placeholder="Knowledge Factory" className="w-full px-3 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">Date of Birth</label>
-                    <div className="flex gap-2">
-                      <select value={dateOfBirth ? dateOfBirth.split('-')[2] : ''} onChange={e => {
-                        const [y, m] = (dateOfBirth || '--').split('-');
-                        setDateOfBirth(`${y || '0000'}-${m || '01'}-${e.target.value.padStart(2, '0')}`);
-                      }} className="flex-1 px-2 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none">
-                        <option value="">Day</option>
-                        {Array.from({ length: 31 }, (_, i) => <option key={i + 1} value={String(i + 1).padStart(2, '0')}>{i + 1}</option>)}
-                      </select>
-                      <select value={dateOfBirth ? dateOfBirth.split('-')[1] : ''} onChange={e => {
-                        const [y, , d] = (dateOfBirth || '--').split('-');
-                        setDateOfBirth(`${y || '0000'}-${e.target.value.padStart(2, '0')}-${d || '01'}`);
-                      }} className="flex-1 px-2 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none">
-                        <option value="">Month</option>
-                        {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m, i) => <option key={i} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
-                      </select>
-                      <select value={dateOfBirth ? dateOfBirth.split('-')[0] : ''} onChange={e => {
-                        const [, m, d] = (dateOfBirth || '--').split('-');
-                        setDateOfBirth(`${e.target.value}-${m || '01'}-${d || '01'}`);
-                      }} className="flex-1 px-2 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-200 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none">
-                        <option value="">Year</option>
-                        {Array.from({ length: 61 }, (_, i) => { const y = 2010 - i; return <option key={y} value={y}>{y}</option>; })}
-                      </select>
-                    </div>
                   </div>
                 </div>
                 <div>

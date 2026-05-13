@@ -108,10 +108,10 @@ export default function Dashboard() {
           <Brain className={`w-5 h-5 ${aiStatus?.connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'}`} />
           <div className="flex-1">
             <p className={`text-sm font-medium ${aiStatus?.connected ? 'text-emerald-900 dark:text-emerald-300' : 'text-gray-600 dark:text-slate-400'}`}>
-              AI Engine: {aiStatus?.connected ? 'Connected (Ollama)' : 'Checking...'}
+              AI Engine: {aiStatus?.connected ? 'Connected (VIO AI)' : 'Checking...'}
             </p>
-            {aiStatus?.models?.length > 0 && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-500">Model: {aiStatus.models[0].name}</p>
+            {aiStatus?.connected && (
+              <p className="text-xs text-emerald-600 dark:text-emerald-500">Model: GPT-5.3-Codex / Claude 4.6 Sonnet</p>
             )}
           </div>
           <span className={`w-2.5 h-2.5 rounded-full ${aiStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />

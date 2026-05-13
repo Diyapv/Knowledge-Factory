@@ -1,10 +1,10 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { analyzeReusability, aiSuggestImprovements, detectDuplicate, generateTags, explainCode, ebChat, ebChatStream, checkMISRACompliance } = require('./services/ai');
+const crypto = require('crypto');
+const { analyzeReusability, aiSuggestImprovements, detectDuplicate, generateTags, explainCode, ebChat, ebChatStream, checkMISRACompliance, cleanExtractedText } = require('./services/ai');
 const {
   ensureCollection, upsertAsset, searchAssets,
   getAllAssets, getAssetById, deleteAsset, updateAsset, getStats,
@@ -16,14 +16,14 @@ const {
   addKBArticle, getAllKBArticles, deleteKBArticle, searchKBArticles,
   addNote, getUserNotes, updateNote, deleteNote,
   saveResume, getUserResumes, getResumeById, deleteResume,
-  createFeedback, getAllFeedback, addReply, toggleFeedbackLike, deleteFeedback, updateFeedback, deleteReply, toggleReplyLike,
+  createFeedback, getAllFeedback, addReply, toggleFeedbackLike, deleteFeedback, deleteReply, toggleReplyLike,
   saveDailyLog, getDailyLog, getUserTaskLogs,
   addDevice, getAllDevices, getDeviceById, updateDevice, deleteDevice,
-  createRecognition, getAllRecognitions, toggleRecognitionLike, deleteRecognition, addRecognitionReply, toggleRecognitionReplyLike,
+  createRecognition, getAllRecognitions, toggleRecognitionLike, deleteRecognition,
   createJob, getAllJobs, getJobById, applyToJob, updateJobStatus, updateApplicantStatus, deleteJob,
   addEmployee, getAllEmployees, getEmployeeById, updateEmployee, deleteEmployee,
   searchEmployeesBySkill,
-  getProfile, saveProfile, getAllProfiles,
+  getProfile, saveProfile,
   createPoll, getAllPolls, votePoll, deletePoll, closePoll,
   setLeaveStatus, getAllLeaveStatuses, getUserLeaveHistory,
   createAnnouncement, getAllAnnouncements, toggleAnnouncementPin, deleteAnnouncement, updateAnnouncement,
@@ -31,21 +31,39 @@ const {
   createQuickLink, getAllQuickLinks, updateQuickLink, deleteQuickLink,
   createStandupPage, getAllStandupPages, getStandupPage, updateStandupPageMembers, deleteStandupPage,
   addStandupEntry, getStandupEntries, updateStandupEntry, deleteStandupEntry,
-  addStandupMessage, getStandupMessages, deleteStandupMessage,
   createMeeting, getAllMeetings, getMeeting, updateMeeting, deleteMeeting,
   addActionItem, updateActionItem, deleteActionItem,
-  createWish, getWishesForUser, markWishRead,
-  createIdea, getAllIdeas, upvoteIdea, setIdeaOfTheMonth, updateIdeaStatus, deleteIdea, addIdeaComment,
-  createQuiz, getAllQuizzes, getQuiz, updateQuiz, deleteQuiz, submitQuizAttempt, getQuizLeaderboard,
-  createPhoto, getAllPhotos, deletePhoto, togglePhotoReaction, addPhotoComment,
-  createPokerStory, getAllPokerStories, getPokerStory, votePokerStory, closePokerStory, reopenPokerStory, deletePokerStory,
-  saveTimesheet, getTimesheetByDate, getUserTimesheets, getAllTimesheets,
-  createLeaveRequest, getAllLeaveRequests, getUserLeaveRequests, updateLeaveRequest, deleteLeaveRequest,
 } = require('./services/qdrant');
 const { validateAzureToken } = require('./middleware/auth');
 const infohub = require('./services/infohub');
 const { sendMentionNotification } = require('./services/mailer');
 const { extractText, isSupportedFile, MAX_FILE_SIZE } = require('./services/fileParser');
+
+// ── Unique ID generator (race-condition safe) ───────────
+let _idCounter = 0;
+function generateUniqueId() {
+  const ts = Date.now().toString(36);
+  const rand = crypto.randomBytes(4).toString('hex');
+  _idCounter = (_idCounter + 1) % 1000;
+  return `${ts}-${rand}-${_idCounter}`;
+}
+
+// ── Upload lock to prevent concurrent upsert races ──────
+const _uploadLocks = new Map();
+async function withUploadLock(key, fn) {
+  while (_uploadLocks.has(key)) {
+    await _uploadLocks.get(key);
+  }
+  let resolve;
+  const promise = new Promise(r => { resolve = r; });
+  _uploadLocks.set(key, promise);
+  try {
+    return await fn();
+  } finally {
+    _uploadLocks.delete(key);
+    resolve();
+  }
+}
 
 // Ensure uploads directory exists
 const UPLOADS_DIR = path.join(__dirname, '..', 'snapshots', 'tmp', 'upload');
@@ -70,7 +88,6 @@ const upload = multer({
     }
   },
 });
-const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE } });
 
 const app = express();
 app.use(cors());
@@ -83,19 +100,21 @@ let infohubToken = process.env.INFOHUB_TOKEN || '';
 
 // ── Health ──────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', database: 'qdrant', ollamaUrl: 'http://localhost:11434' });
+  res.json({ status: 'ok', database: 'qdrant', aiProvider: 'VIO API' });
 });
 
 // ── AI Status ───────────────────────────────────────────
 app.get('/api/ai/status', async (req, res) => {
   try {
-    const [ollamaRes, qdrantRes] = await Promise.all([
-      fetch('http://localhost:11434/api/tags').then(r => r.json()),
+    const [vioRes, qdrantRes] = await Promise.all([
+      fetch('https://vio.automotive-wan.com:446/models', {
+        headers: { 'Authorization': 'Bearer R0f_Yvf6sqLio8YsqqLqQAAu4yyG8llroNKVylAT4yo' },
+      }).then(r => r.json()),
       fetch('http://localhost:6333/healthz').then(r => r.text()),
     ]);
     res.json({
       connected: true,
-      models: ollamaRes.models,
+      models: vioRes.data || [],
       qdrant: qdrantRes.includes('passed') ? 'connected' : 'error',
     });
   } catch {
@@ -115,6 +134,32 @@ app.post('/api/ai/analyze', async (req, res) => {
   } catch (err) {
     console.error('Analysis error:', err.message);
     res.status(500).json({ error: 'AI analysis failed', details: err.message });
+  }
+});
+
+// ── AI Analyze with file upload (extract text + analyze in one step) ──
+app.post('/api/ai/analyze-file', upload.single('file'), async (req, res) => {
+  try {
+    const { description, type, language } = req.body;
+    let code = '';
+    if (req.file) {
+      const fileBuffer = fs.readFileSync(req.file.path);
+      code = await extractText(fileBuffer, req.file.originalname);
+      // AI-powered cleanup for garbled OCR text (scanned PDFs, images)
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      if (['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif'].includes(ext)) {
+        code = await cleanExtractedText(code);
+      }
+      fs.unlink(req.file.path, () => {});
+    }
+    if (!code && !description) {
+      return res.status(400).json({ error: 'File content or description is required' });
+    }
+    const result = await analyzeReusability({ code, description, type, language });
+    res.json({ analysis: result, extractedText: code });
+  } catch (err) {
+    console.error('File analysis error:', err.message);
+    res.status(500).json({ error: 'AI file analysis failed', details: err.message });
   }
 });
 
@@ -200,7 +245,7 @@ app.post('/api/ai/misra', async (req, res) => {
 // ── Assets CRUD ─────────────────────────────────────────
 app.post('/api/assets', async (req, res) => {
   try {
-    const id = Date.now().toString();
+    const id = generateUniqueId();
     const asset = { id, ...req.body, createdAt: new Date().toISOString() };
     await upsertAsset(asset);
     await logActivity({ action: 'upload', assetId: id, assetName: asset.name, user: asset.submittedBy || asset.author, details: `Uploaded ${asset.type}: ${asset.name}` });
@@ -211,25 +256,52 @@ app.post('/api/assets', async (req, res) => {
   }
 });
 
+// ── Extract text from uploaded file (for AI analysis before submission) ──
+app.post('/api/extract-text', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    console.log(`[Extract Text] file=${req.file.originalname}, size=${req.file.size}`);
+    const fileBuffer = fs.readFileSync(req.file.path);
+    let text = await extractText(fileBuffer, req.file.originalname);
+    // AI-powered cleanup for garbled OCR text (scanned PDFs, images)
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    if (['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif'].includes(ext)) {
+      text = await cleanExtractedText(text);
+    }
+    console.log(`[Extract Text] extracted ${text.length} chars from ${req.file.originalname}`);
+    // Clean up temp file
+    fs.unlink(req.file.path, () => {});
+    res.json({ text });
+  } catch (err) {
+    console.error('Text extraction error:', err.message);
+    res.status(500).json({ error: 'Failed to extract text', details: err.message });
+  }
+});
+
 // ── File upload endpoint (extracts text server-side for PDFs and binary files) ──
 app.post('/api/assets/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const fileBuffer = fs.readFileSync(req.file.path);
-    const text = await extractText(fileBuffer, req.file.originalname);
-    const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {};
-    const id = Date.now().toString();
-    const asset = {
-      id,
-      ...metadata,
-      code: text,
-      originalFileName: req.file.originalname,
-      storedFileName: req.file.filename,
-      createdAt: new Date().toISOString(),
-    };
-    await upsertAsset(asset);
-    await logActivity({ action: 'upload', assetId: id, assetName: asset.name || req.file.originalname, user: asset.submittedBy || asset.author || '', details: `Uploaded ${asset.type || 'File'}: ${asset.name || req.file.originalname}` });
-    res.status(201).json(asset);
+
+    const result = await withUploadLock(req.file.originalname, async () => {
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const text = await extractText(fileBuffer, req.file.originalname);
+      const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {};
+      const id = generateUniqueId();
+      const asset = {
+        id,
+        ...metadata,
+        code: text,
+        originalFileName: req.file.originalname,
+        storedFileName: req.file.filename,
+        createdAt: new Date().toISOString(),
+      };
+      await upsertAsset(asset);
+      await logActivity({ action: 'upload', assetId: id, assetName: asset.name || req.file.originalname, user: asset.submittedBy || asset.author || '', details: `Uploaded ${asset.type || 'File'}: ${asset.name || req.file.originalname}` });
+      return asset;
+    });
+
+    res.status(201).json(result);
   } catch (err) {
     console.error('File upload error:', err.message);
     res.status(500).json({ error: 'Failed to upload file', details: err.message });
@@ -604,8 +676,8 @@ app.post('/api/chat/eb', async (req, res) => {
       // Send sources first
       res.write(`data: ${JSON.stringify({ type: 'sources', kb: !!kbContext, infohub: !!infohubContext })}\n\n`);
 
-      const ollamaStream = await ebChatStream(query, history || [], fullContext);
-      const reader = ollamaStream.getReader();
+      const vioStream = await ebChatStream(query, history || [], fullContext);
+      const reader = vioStream.getReader();
       const decoder = new TextDecoder();
       let fullReply = '';
 
@@ -614,13 +686,16 @@ app.post('/api/chat/eb', async (req, res) => {
           const { done, value } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
-          // Ollama streams NDJSON — each line is a JSON object
+          // OpenAI-compatible SSE: each line is "data: {JSON}" or "data: [DONE]"
           for (const line of chunk.split('\n').filter(l => l.trim())) {
+            const stripped = line.replace(/^data:\s*/, '');
+            if (stripped === '[DONE]') break;
             try {
-              const json = JSON.parse(line);
-              if (json.message?.content) {
-                fullReply += json.message.content;
-                res.write(`data: ${JSON.stringify({ type: 'token', content: json.message.content })}\n\n`);
+              const json = JSON.parse(stripped);
+              const token = json.choices?.[0]?.delta?.content;
+              if (token) {
+                fullReply += token;
+                res.write(`data: ${JSON.stringify({ type: 'token', content: token })}\n\n`);
               }
             } catch {}
           }
@@ -951,25 +1026,12 @@ app.post('/api/feedback/:id/like', async (req, res) => {
 
 app.delete('/api/feedback/:id', async (req, res) => {
   try {
-    const { username, role } = req.query;
+    const { username } = req.query;
     if (!username) return res.status(400).json({ error: 'username is required' });
-    await deleteFeedback(req.params.id, username, role);
+    await deleteFeedback(req.params.id, username);
     res.json({ deleted: true });
   } catch (err) {
     console.error('Delete feedback error:', err.message);
-    const status = err.message === 'Not authorized' ? 403 : 500;
-    res.status(status).json({ error: err.message });
-  }
-});
-
-app.put('/api/feedback/:id', async (req, res) => {
-  try {
-    const { username, role } = req.query;
-    if (!username) return res.status(400).json({ error: 'username is required' });
-    const updated = await updateFeedback(req.params.id, username, role, req.body);
-    res.json(updated);
-  } catch (err) {
-    console.error('Update feedback error:', err.message);
     const status = err.message === 'Not authorized' ? 403 : 500;
     res.status(status).json({ error: err.message });
   }
@@ -1004,26 +1066,7 @@ app.post('/api/feedback/:id/reply/:replyId/like', async (req, res) => {
 app.post('/api/feedback/notify-mentions', async (req, res) => {
   try {
     const { mentionedBy, context, feedbackTitle, messageText } = req.body;
-    if (!messageText && context !== 'recognition') return res.json({ sent: 0 });
-
-    // For recognition context, send a recognition-specific email to the recognized person
-    if (context === 'recognition') {
-      const allEmployees = await getAllEmployees();
-      const recipientName = feedbackTitle; // toName is passed as feedbackTitle
-      const emp = allEmployees.find(e => e.name && e.name.toLowerCase() === recipientName.toLowerCase());
-      if (emp && emp.email) {
-        sendMentionNotification({
-          toEmail: emp.email,
-          mentionedName: emp.name,
-          mentionedBy,
-          context: 'recognition',
-          feedbackTitle: recipientName,
-          messageText: messageText || '',
-        });
-        return res.json({ sent: 1 });
-      }
-      return res.json({ sent: 0 });
-    }
+    if (!messageText) return res.json({ sent: 0 });
 
     // Find all @mentions by checking employee names against the text
     const allEmployees = await getAllEmployees();
@@ -1124,75 +1167,6 @@ app.post('/api/devices', async (req, res) => {
   }
 });
 
-// Bulk upload devices from CSV
-app.post('/api/devices/bulk-upload', memUpload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const text = req.file.buffer.toString('utf8');
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length < 2) return res.status(400).json({ error: 'CSV must have header + data rows' });
-
-    function parseCSVLine(line, sep = ',') {
-      const fields = []; let current = ''; let inQuotes = false;
-      for (const ch of line) {
-        if (ch === '"') { inQuotes = !inQuotes; }
-        else if (ch === sep && !inQuotes) { fields.push(current.trim()); current = ''; }
-        else { current += ch; }
-      }
-      fields.push(current.trim());
-      return fields;
-    }
-
-    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/\s+/g, ''));
-    const fieldMap = {
-      assettag: 'assetTag', tag: 'assetTag',
-      name: 'name', devicename: 'name', assetname: 'name',
-      category: 'category', type: 'category',
-      model: 'model',
-      serial: 'serialNumber', serialnumber: 'serialNumber', sn: 'serialNumber',
-      manufacturer: 'manufacturer', make: 'manufacturer',
-      assignedto: 'assignedTo', employee: 'assignedTo', user: 'assignedTo',
-      employeeid: 'employeeId', empid: 'employeeId',
-      location: 'location', office: 'location',
-      purchasedate: 'purchaseDate',
-      warrantyexpiry: 'warrantyExpiry', warranty: 'warrantyExpiry',
-      status: 'status',
-      notes: 'notes', specs: 'specs',
-    };
-    const colMapping = headers.map(h => fieldMap[h] || null);
-
-    const results = []; const errors = [];
-    for (let i = 1; i < lines.length; i++) {
-      try {
-        const vals = parseCSVLine(lines[i]);
-        const entry = {};
-        for (let j = 0; j < colMapping.length; j++) {
-          if (colMapping[j] && vals[j]) entry[colMapping[j]] = vals[j];
-        }
-        if (!entry.assignedTo && !entry.assetTag && !entry.name) continue;
-        // Map category to device type
-        const cat = (entry.category || '').toLowerCase();
-        if (cat.includes('laptop')) entry.type = 'laptop';
-        else if (cat.includes('desktop')) entry.type = 'desktop';
-        else if (cat.includes('monitor')) entry.type = 'desktop';
-        else if (cat.includes('phone')) entry.type = 'phone';
-        else if (cat.includes('tablet')) entry.type = 'tablet';
-        else if (cat.includes('dock')) entry.type = 'storage';
-        else if (cat.includes('printer')) entry.type = 'printer';
-        else entry.type = 'other';
-        entry.status = entry.assignedTo ? 'assigned' : (entry.status || 'available');
-        entry.addedBy = req.body?.addedBy || 'admin';
-        const device = await addDevice(entry);
-        results.push(device);
-      } catch (e) { errors.push({ row: i + 1, error: e.message }); }
-    }
-    res.json({ added: results.length, errors });
-  } catch (err) {
-    console.error('Bulk upload devices error:', err.message);
-    res.status(500).json({ error: 'Failed to bulk upload', details: err.message });
-  }
-});
-
 app.put('/api/devices/:id', async (req, res) => {
   try {
     const device = await updateDevice(req.params.id, req.body);
@@ -1252,27 +1226,6 @@ app.delete('/api/recognitions/:id', async (req, res) => {
     res.json({ deleted: true });
   } catch (err) {
     console.error('Delete recognition error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/recognitions/:id/replies', async (req, res) => {
-  try {
-    const rec = await addRecognitionReply(req.params.id, req.body);
-    res.json(rec);
-  } catch (err) {
-    console.error('Add recognition reply error:', err.message);
-    const status = err.message === 'Recognition not found' ? 404 : 500;
-    res.status(status).json({ error: err.message });
-  }
-});
-
-app.post('/api/recognitions/:id/replies/:replyId/like', async (req, res) => {
-  try {
-    const rec = await toggleRecognitionReplyLike(req.params.id, req.params.replyId, req.body.username);
-    res.json(rec);
-  } catch (err) {
-    console.error('Toggle recognition reply like error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1457,7 +1410,6 @@ app.post('/api/employees/bulk-upload', upload.single('file'), async (req, res) =
       skills: 'skills', skill: 'skills', expertise: 'skills',
       location: 'location', office: 'location', city: 'location',
       joindate: 'joinDate', dateofjoining: 'joinDate', doj: 'joinDate', joiningdate: 'joinDate',
-      dateofbirth: 'dateOfBirth', dob: 'dateOfBirth', birthdate: 'dateOfBirth', birthday: 'dateOfBirth',
       bio: 'bio', about: 'bio', description: 'bio',
     };
 
@@ -1511,20 +1463,6 @@ app.get('/api/profile/:username', async (req, res) => {
 app.put('/api/profile/:username', async (req, res) => {
   try {
     const saved = await saveProfile(req.params.username, req.body);
-
-    // Sync dateOfBirth to employee record if provided
-    if (req.body.dateOfBirth) {
-      try {
-        const employees = await getAllEmployees();
-        const email = (req.body.email || '').toLowerCase();
-        const emp = employees.find(e =>
-          (e.email && e.email.toLowerCase() === email) ||
-          (e.name && e.name.toLowerCase() === (req.body.fullName || '').toLowerCase())
-        );
-        if (emp) await updateEmployee(emp.id, { dateOfBirth: req.body.dateOfBirth });
-      } catch (syncErr) { console.error('Sync DOB to employee:', syncErr.message); }
-    }
-
     res.json(saved);
   } catch (err) {
     console.error('Save profile error:', err.message);
@@ -1562,8 +1500,7 @@ app.post('/api/polls/:id/close', async (req, res) => {
 app.delete('/api/polls/:id', async (req, res) => {
   try {
     const username = req.query.user;
-    const role = req.query.role;
-    res.json(await deletePoll(req.params.id, username, role));
+    res.json(await deletePoll(req.params.id, username));
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
@@ -1717,24 +1654,6 @@ app.delete('/api/standups/entries/:id', async (req, res) => {
   catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-// Standup Messages
-app.get('/api/standups/pages/:id/messages', async (req, res) => {
-  try { res.json(await getStandupMessages(req.params.id)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/standups/pages/:id/messages', async (req, res) => {
-  try {
-    const data = { ...req.body, pageId: req.params.id };
-    res.json(await addStandupMessage(data));
-  } catch (err) { res.status(400).json({ error: err.message }); }
-});
-
-app.delete('/api/standups/messages/:id', async (req, res) => {
-  try { res.json(await deleteStandupMessage(req.params.id)); }
-  catch (err) { res.status(400).json({ error: err.message }); }
-});
-
 // ── Meeting Minutes ────────────────────────────────────
 app.get('/api/meetings', async (req, res) => {
   try { res.json(await getAllMeetings()); }
@@ -1776,314 +1695,6 @@ app.delete('/api/meetings/:meetingId/actions/:actionId', async (req, res) => {
   catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-// ── Celebrations (Birthday & Work Anniversary) ─────────
-app.get('/api/celebrations', async (req, res) => {
-  try {
-    const employees = await getAllEmployees();
-    const profiles = await getAllProfiles();
-    const today = new Date();
-    const todayMD = String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-
-    // Build a set of employee emails/names that already have DOB from employees collection
-    const empWithDob = new Set();
-    const celebrations = [];
-
-    for (const emp of employees) {
-      if (emp.dateOfBirth) {
-        empWithDob.add((emp.email || '').toLowerCase());
-        empWithDob.add((emp.name || '').toLowerCase());
-        const [y, m, d] = emp.dateOfBirth.split('-');
-        const md = m + '-' + d;
-        const thisYearBday = new Date(today.getFullYear(), Number(m) - 1, Number(d));
-        const diff = Math.round((thisYearBday - today) / 86400000);
-        celebrations.push({
-          type: 'birthday',
-          name: emp.name,
-          email: emp.email,
-          department: emp.department,
-          designation: emp.designation,
-          date: emp.dateOfBirth,
-          monthDay: md,
-          daysUntil: diff < 0 ? diff + 365 : diff,
-          isToday: md === todayMD,
-          age: today.getFullYear() - Number(y),
-        });
-      }
-      if (emp.joinDate && emp.joinDate.includes('-')) {
-        const [y, m, d] = emp.joinDate.split('-');
-        const md = m + '-' + d;
-        const thisYearAnniv = new Date(today.getFullYear(), Number(m) - 1, Number(d));
-        const diff = Math.round((thisYearAnniv - today) / 86400000);
-        const years = today.getFullYear() - Number(y);
-        if (years > 0) {
-          celebrations.push({
-            type: 'anniversary',
-            name: emp.name,
-            email: emp.email,
-            department: emp.department,
-            designation: emp.designation,
-            date: emp.joinDate,
-            monthDay: md,
-            daysUntil: diff < 0 ? diff + 365 : diff,
-            isToday: md === todayMD,
-            years,
-          });
-        }
-      }
-    }
-
-    // Also check user_profiles for DOBs not already covered by employees
-    for (const prof of profiles) {
-      if (!prof.dateOfBirth) continue;
-      const profEmail = (prof.email || '').toLowerCase();
-      const profName = (prof.fullName || prof.username || '').toLowerCase();
-      if (empWithDob.has(profEmail) || empWithDob.has(profName)) continue;
-
-      const [y, m, d] = prof.dateOfBirth.split('-');
-      if (!m || !d) continue;
-      const md = m + '-' + d;
-      const thisYearBday = new Date(today.getFullYear(), Number(m) - 1, Number(d));
-      const diff = Math.round((thisYearBday - today) / 86400000);
-      celebrations.push({
-        type: 'birthday',
-        name: prof.fullName || prof.username || 'Unknown',
-        email: prof.email || '',
-        department: prof.team || '',
-        designation: prof.role || '',
-        date: prof.dateOfBirth,
-        monthDay: md,
-        daysUntil: diff < 0 ? diff + 365 : diff,
-        isToday: md === todayMD,
-        age: today.getFullYear() - Number(y),
-      });
-    }
-
-    res.json(celebrations);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Send celebration wish (stored in-app)
-app.post('/api/celebrations/send-wishes', async (req, res) => {
-  try {
-    const { name, email, type, message, senderName, senderUsername } = req.body;
-    const wish = await createWish({
-      recipientName: name,
-      recipientEmail: email,
-      type,
-      message,
-      senderName: senderName || 'Someone',
-      senderUsername: senderUsername || '',
-    });
-    console.log(`[WISH] ${senderName} sent ${type} wish to ${name}`);
-    // Send email notification
-    const { sendCelebrationWishEmail } = require('./services/mailer');
-    sendCelebrationWishEmail({ toEmail: email, recipientName: name, senderName: senderName || 'Someone', type, message });
-    res.json({ success: true, wish });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Get wishes for a user
-app.get('/api/celebrations/wishes/:name', async (req, res) => {
-  try { res.json(await getWishesForUser(req.params.name)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Mark wish as read
-app.put('/api/celebrations/wishes/:id/read', async (req, res) => {
-  try { res.json(await markWishRead(req.params.id)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── Idea Box / Innovation Board Routes ──────────────────
-app.get('/api/ideas', async (req, res) => {
-  try { res.json(await getAllIdeas()); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/ideas', async (req, res) => {
-  try { res.json(await createIdea(req.body)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/ideas/:id/upvote', async (req, res) => {
-  try { res.json(await upvoteIdea(req.params.id, req.body.username)); }
-  catch (err) { res.status(err.message === 'Idea not found' ? 404 : 500).json({ error: err.message }); }
-});
-
-app.post('/api/ideas/:id/idea-of-month', async (req, res) => {
-  try { res.json(await setIdeaOfTheMonth(req.params.id)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.put('/api/ideas/:id/status', async (req, res) => {
-  try { res.json(await updateIdeaStatus(req.params.id, req.body.status)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/ideas/:id/comments', async (req, res) => {
-  try { res.json(await addIdeaComment(req.params.id, req.body)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/ideas/:id', async (req, res) => {
-  try { await deleteIdea(req.params.id); res.json({ deleted: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── Trivia / Quiz Arena ──────────────────────────────────
-app.post('/api/quizzes', async (req, res) => {
-  try { res.json(await createQuiz(req.body)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/quizzes', async (req, res) => {
-  try { res.json(await getAllQuizzes()); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/quizzes/leaderboard', async (req, res) => {
-  try { res.json(await getQuizLeaderboard()); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/quizzes/:id', async (req, res) => {
-  try { res.json(await getQuiz(req.params.id)); }
-  catch (err) { res.status(err.message === 'Quiz not found' ? 404 : 500).json({ error: err.message }); }
-});
-
-app.put('/api/quizzes/:id', async (req, res) => {
-  try { res.json(await updateQuiz(req.params.id, req.body)); }
-  catch (err) { res.status(err.message === 'Quiz not found' ? 404 : 500).json({ error: err.message }); }
-});
-
-app.delete('/api/quizzes/:id', async (req, res) => {
-  try { await deleteQuiz(req.params.id); res.json({ deleted: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/quizzes/:id/attempt', async (req, res) => {
-  try { res.json(await submitQuizAttempt(req.params.id, req.body)); }
-  catch (err) { res.status(err.message === 'Quiz not found' ? 404 : 500).json({ error: err.message }); }
-});
-
-// ── Photo Gallery / Wall ────────────────────────────────
-app.post('/api/gallery', async (req, res) => {
-  try { res.json(await createPhoto(req.body)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/gallery', async (req, res) => {
-  try { res.json(await getAllPhotos()); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/gallery/:id', async (req, res) => {
-  try { await deletePhoto(req.params.id); res.json({ deleted: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/gallery/:id/reaction', async (req, res) => {
-  try { res.json(await togglePhotoReaction(req.params.id, req.body)); }
-  catch (err) { res.status(err.message === 'Photo not found' ? 404 : 500).json({ error: err.message }); }
-});
-
-app.post('/api/gallery/:id/comments', async (req, res) => {
-  try { res.json(await addPhotoComment(req.params.id, req.body)); }
-  catch (err) { res.status(err.message === 'Photo not found' ? 404 : 500).json({ error: err.message }); }
-});
-
-// ── Sprint Planning / Poker Points ───────────────────────
-// ── Planning Poker ──
-app.post('/api/poker', async (req, res) => {
-  try { res.json(await createPokerStory(req.body)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/poker', async (req, res) => {
-  try { res.json(await getAllPokerStories()); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/poker/:id', async (req, res) => {
-  try { res.json(await getPokerStory(req.params.id)); }
-  catch (err) { res.status(err.message === 'Story not found' ? 404 : 500).json({ error: err.message }); }
-});
-
-app.post('/api/poker/:id/vote', async (req, res) => {
-  try { res.json(await votePokerStory(req.params.id, req.body)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/poker/:id/close', async (req, res) => {
-  try { res.json(await closePokerStory(req.params.id)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/poker/:id/reopen', async (req, res) => {
-  try { res.json(await reopenPokerStory(req.params.id)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/poker/:id', async (req, res) => {
-  try { await deletePokerStory(req.params.id); res.json({ deleted: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── Timesheet Routes ──
-app.post('/api/timesheets', async (req, res) => {
-  try {
-    const { username, displayName, date, entries, totalHours, notes, status, submittedAt } = req.body;
-    res.json(await saveTimesheet(username, displayName, { date, entries, totalHours, notes, status, submittedAt }));
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/timesheets/user/:username', async (req, res) => {
-  try {
-    const { start, end } = req.query;
-    res.json(await getUserTimesheets(req.params.username, start, end));
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/timesheets/date/:date', async (req, res) => {
-  try { res.json(await getAllTimesheets(req.params.date)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/timesheets/:username/:date', async (req, res) => {
-  try {
-    const ts = await getTimesheetByDate(req.params.username, req.params.date);
-    res.json(ts || { entries: [], totalHours: 0 });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── Leave Request Routes ──
-app.post('/api/leave-requests', async (req, res) => {
-  try {
-    const { username, displayName, type, startDate, endDate, reason } = req.body;
-    res.json(await createLeaveRequest(username, displayName, { type, startDate, endDate, reason }));
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/leave-requests', async (req, res) => {
-  try { res.json(await getAllLeaveRequests()); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/leave-requests/user/:username', async (req, res) => {
-  try { res.json(await getUserLeaveRequests(req.params.username)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.put('/api/leave-requests/:id', async (req, res) => {
-  try { res.json(await updateLeaveRequest(req.params.id, req.body)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/leave-requests/:id', async (req, res) => {
-  try { await deleteLeaveRequest(req.params.id); res.json({ deleted: true }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 // ── Final Server Start ──────────────────────────────────
 const PORT = 3001;
 
@@ -2093,7 +1704,7 @@ async function start() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Knowledge Factory API running on http://0.0.0.0:${PORT}`);
     console.log('Qdrant: http://localhost:6333');
-    console.log('Ollama: http://localhost:11434');
+    console.log('AI: VIO API (vio.automotive-wan.com:446)');
   });
 }
 

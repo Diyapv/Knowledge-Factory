@@ -2,13 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
   MessageSquare, Plus, Trash2, X, Send, Loader2, Search,
-  ThumbsUp, MessageCircle, ChevronDown, ChevronUp, Filter, AtSign, Pencil, Check
+  ThumbsUp, MessageCircle, ChevronDown, ChevronUp, Filter, AtSign
 } from 'lucide-react';
 import Header from '../components/Header';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchFeedback, createFeedbackApi, addReplyApi,
-  toggleFeedbackLikeApi, deleteFeedbackApi, updateFeedbackApi, deleteReplyApi, toggleReplyLikeApi,
+  toggleFeedbackLikeApi, deleteFeedbackApi, deleteReplyApi, toggleReplyLikeApi,
   fetchEmployees, notifyMentionsApi
 } from '../services/api';
 
@@ -224,8 +224,6 @@ export default function Feedback() {
   const [replyText, setReplyText] = useState({});
   const [replyLoading, setReplyLoading] = useState({});
   const [employees, setEmployees] = useState([]);
-  const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ title: '', content: '', category: 'general' });
   const titleRef = useRef(null);
 
   const load = () => {
@@ -294,25 +292,6 @@ export default function Feedback() {
       await deleteFeedbackApi(id, user.username);
       load();
     } catch { /* ignore */ }
-  };
-
-  const handleEdit = (item) => {
-    setEditingId(item.id);
-    setEditForm({ title: item.title || '', content: item.content || '', category: item.category || 'general' });
-  };
-
-  const handleEditSave = async (id) => {
-    if (!editForm.title.trim() && !editForm.content.trim()) return;
-    try {
-      await updateFeedbackApi(id, user.username, editForm);
-      setEditingId(null);
-      load();
-    } catch { /* ignore */ }
-  };
-
-  const handleEditCancel = () => {
-    setEditingId(null);
-    setEditForm({ title: '', content: '', category: 'general' });
   };
 
   const handleDeleteReply = async (feedbackId, replyId) => {
@@ -440,8 +419,6 @@ export default function Feedback() {
               const replyCount = (item.replies || []).length;
               const isExpanded = expandedReplies[item.id];
               const isOwner = item.username === user.username;
-              const canEdit = isOwner || user.role === 'admin';
-              const isEditing = editingId === item.id;
 
               return (
                 <div key={item.id} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden hover:shadow-md transition-shadow">
@@ -456,74 +433,24 @@ export default function Feedback() {
                           <span className="font-semibold text-sm text-slate-800 dark:text-white">{item.displayName}</span>
                           <span className={`px-2 py-0.5 text-xs rounded-full ${cat.className}`}>{cat.label}</span>
                           <span className="text-xs text-slate-400 dark:text-slate-500">{timeAgo(item.createdAt)}</span>
-                          {canEdit && !isEditing && (
-                            <button onClick={() => handleEdit(item)} className="ml-auto text-slate-400 hover:text-indigo-500 transition-colors" title="Edit">
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {canEdit && (
-                            <button onClick={() => handleDelete(item.id)} className={`${canEdit && !isEditing ? '' : 'ml-auto'} text-slate-400 hover:text-red-500 transition-colors`} title="Delete">
+                          {isOwner && (
+                            <button onClick={() => handleDelete(item.id)} className="ml-auto text-slate-400 hover:text-red-500 transition-colors">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
-                        {isEditing ? (
-                          <div className="mt-2 space-y-3">
-                            <input value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
-                              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                              placeholder="Title" />
-                            <textarea value={editForm.content} onChange={e => setEditForm(f => ({ ...f, content: e.target.value }))} rows={3}
-                              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y"
-                              placeholder="Content" />
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-slate-500">Category:</span>
-                                {CATEGORIES.map(c => (
-                                  <button key={c.id} type="button" onClick={() => setEditForm(f => ({ ...f, category: c.id }))}
-                                    className={`px-2 py-0.5 text-xs rounded-full transition-all ${editForm.category === c.id
-                                      ? getCategoryStyle(c.id).className + ' font-semibold'
-                                      : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
-                                    {c.label}
-                                  </button>
-                                ))}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button onClick={handleEditCancel} className="px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">Cancel</button>
-                                <button onClick={() => handleEditSave(item.id)} className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium">
-                                  <Check className="w-3.5 h-3.5" /> Save
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            {item.title && <h4 className="font-semibold text-slate-800 dark:text-white mt-1">{item.title}</h4>}
-                            {item.content && <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-wrap">{renderWithMentions(item.content, employees)}</p>}
-                          </>
-                        )}
+                        {item.title && <h4 className="font-semibold text-slate-800 dark:text-white mt-1">{item.title}</h4>}
+                        {item.content && <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-wrap">{renderWithMentions(item.content, employees)}</p>}
                       </div>
                     </div>
 
                     {/* Actions */}
                     <div className="flex items-center gap-4 mt-4 ml-12">
-                      <div className="relative group/like">
-                        <button onClick={() => handleLike(item.id)}
-                          className={`flex items-center gap-1.5 text-xs transition-colors ${isLiked ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-slate-400 hover:text-indigo-500'}`}>
-                          <ThumbsUp className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
-                          {(item.likes || []).length > 0 && (item.likes || []).length}
-                        </button>
-                        {(item.likes || []).length > 0 && (
-                          <div className="absolute bottom-full left-0 mb-2 hidden group-hover/like:block z-50">
-                            <div className="bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap max-h-40 overflow-y-auto">
-                              <p className="font-semibold mb-1 text-indigo-300">Liked by</p>
-                              {(item.likes || []).map((u, i) => {
-                                const emp = employees.find(e => (e.email || '').split('@')[0].toLowerCase() === u.toLowerCase() || (e.name || '').toLowerCase().replace(/\s+/g, '.') === u.toLowerCase());
-                                return <p key={i} className="py-0.5">{emp ? emp.name : u}</p>;
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      <button onClick={() => handleLike(item.id)}
+                        className={`flex items-center gap-1.5 text-xs transition-colors ${isLiked ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-slate-400 hover:text-indigo-500'}`}>
+                        <ThumbsUp className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
+                        {(item.likes || []).length > 0 && (item.likes || []).length}
+                      </button>
                       <button onClick={() => toggleReplies(item.id)}
                         className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-indigo-500 transition-colors">
                         <MessageCircle className="w-4 h-4" />
@@ -555,24 +482,11 @@ export default function Feedback() {
                                 )}
                               </div>
                               <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5 whitespace-pre-wrap">{renderWithMentions(reply.text, employees)}</p>
-                              <div className="relative group/rlike">
-                                <button onClick={() => handleReplyLike(item.id, reply.id)}
-                                  className={`flex items-center gap-1 mt-1.5 text-xs transition-colors ${(reply.likes || []).includes(user.username) ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-slate-400 hover:text-indigo-500'}`}>
-                                  <ThumbsUp className={`w-3 h-3 ${(reply.likes || []).includes(user.username) ? 'fill-current' : ''}`} />
-                                  {(reply.likes || []).length > 0 && <span>{(reply.likes || []).length}</span>}
-                                </button>
-                                {(reply.likes || []).length > 0 && (
-                                  <div className="absolute bottom-full left-0 mb-2 hidden group-hover/rlike:block z-50">
-                                    <div className="bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap max-h-40 overflow-y-auto">
-                                      <p className="font-semibold mb-1 text-indigo-300">Liked by</p>
-                                      {(reply.likes || []).map((u, i) => {
-                                        const emp = employees.find(e => (e.email || '').split('@')[0].toLowerCase() === u.toLowerCase() || (e.name || '').toLowerCase().replace(/\s+/g, '.') === u.toLowerCase());
-                                        return <p key={i} className="py-0.5">{emp ? emp.name : u}</p>;
-                                      })}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
+                              <button onClick={() => handleReplyLike(item.id, reply.id)}
+                                className={`flex items-center gap-1 mt-1.5 text-xs transition-colors ${(reply.likes || []).includes(user.username) ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-slate-400 hover:text-indigo-500'}`}>
+                                <ThumbsUp className={`w-3 h-3 ${(reply.likes || []).includes(user.username) ? 'fill-current' : ''}`} />
+                                {(reply.likes || []).length > 0 && <span>{(reply.likes || []).length}</span>}
+                              </button>
                             </div>
                           </div>
                         </div>

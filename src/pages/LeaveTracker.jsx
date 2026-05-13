@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
   CalendarDays, Laptop, Building2, Coffee, Clock, Users,
-  Loader2, ChevronLeft, ChevronRight, History, Check, RefreshCw, Search
+  Loader2, ChevronLeft, ChevronRight, History, Check, RefreshCw
 } from 'lucide-react';
 import Header from '../components/Header';
 import { useAuth } from '../context/AuthContext';
@@ -47,7 +47,6 @@ export default function LeaveTracker() {
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [toast, setToast] = useState('');
-  const [search, setSearch] = useState('');
   const intervalRef = useRef(null);
 
   useEffect(() => { loadStatuses(); }, [selectedDate]);
@@ -120,13 +119,9 @@ export default function LeaveTracker() {
   }
 
   // Group statuses by status type for the team view
-  const searchLower = search.toLowerCase();
-  const filteredStatuses = search
-    ? statuses.filter(s => (s.displayName || '').toLowerCase().includes(searchLower) || (s.note || '').toLowerCase().includes(searchLower))
-    : statuses;
   const grouped = STATUS_OPTIONS.map(opt => ({
     ...opt,
-    members: filteredStatuses.filter(s => s.status === opt.id),
+    members: statuses.filter(s => s.status === opt.id),
   })).filter(g => g.members.length > 0);
 
   const notReported = statuses.length === 0 && !loading;
@@ -231,18 +226,10 @@ export default function LeaveTracker() {
 
       {/* Team Status View */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Users size={16} className="text-indigo-500" /> Team Status
-            <span className="text-xs text-gray-400 font-normal">{filteredStatuses.length}{search ? ` of ${statuses.length}` : ''} reported</span>
-          </h3>
-          <div className="relative">
-            <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search employee..."
-              className="pl-8 pr-3 py-1.5 w-52 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-shadow" />
-          </div>
-        </div>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          <Users size={16} className="text-indigo-500" /> Team Status
+          <span className="ml-auto text-xs text-gray-400 font-normal">{statuses.length} reported</span>
+        </h3>
 
         {loading ? (
           <div className="flex justify-center py-10"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>

@@ -56,7 +56,6 @@ export default function Polls() {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [voteError, setVoteError] = useState('');
 
   // Create form state
   const [question, setQuestion] = useState('');
@@ -98,14 +97,9 @@ export default function Polls() {
 
   async function handleVote(pollId, optionIds) {
     try {
-      setVoteError('');
       const updated = await votePollApi(pollId, username, optionIds);
       setPolls(prev => prev.map(p => p.id === pollId ? { ...p, ...updated } : p));
-    } catch (err) {
-      setVoteError(err.message || 'Failed to submit vote');
-      // Reload polls to get fresh state (in case poll expired)
-      loadPolls();
-    }
+    } catch { /* ignore */ }
   }
 
   async function handleClose(pollId) {
@@ -250,15 +244,15 @@ export default function Polls() {
         </div>
       ) : (
         <div className="space-y-4">
-          {filtered.map(poll => <PollCard key={poll.id} poll={poll} username={username} isAdmin={currentUser.role === 'admin'}
-            onVote={handleVote} onClose={handleClose} onDelete={handleDelete} voteError={voteError} />)}
+          {filtered.map(poll => <PollCard key={poll.id} poll={poll} username={username}
+            onVote={handleVote} onClose={handleClose} onDelete={handleDelete} />)}
         </div>
       )}
     </div>
   );
 }
 
-function PollCard({ poll, username, isAdmin, onVote, onClose, onDelete, voteError }) {
+function PollCard({ poll, username, onVote, onClose, onDelete }) {
   const isOwner = poll.username === username;
   const isExpired = poll.endsAt && new Date(poll.endsAt) <= new Date();
   const isClosed = poll.closed || isExpired;
@@ -290,12 +284,6 @@ function PollCard({ poll, username, isAdmin, onVote, onClose, onDelete, voteErro
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-      {/* Vote error */}
-      {voteError && (
-        <div className="mx-5 mt-4 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-600 dark:text-red-400">
-          {voteError}
-        </div>
-      )}
       {/* Header */}
       <div className="p-5 pb-3">
         <div className="flex items-start justify-between gap-3">
@@ -397,7 +385,7 @@ function PollCard({ poll, username, isAdmin, onVote, onClose, onDelete, voteErro
               <Lock size={12} /> Close
             </button>
           )}
-          {(isOwner || isAdmin) && (
+          {isOwner && (
             <button onClick={() => onDelete(poll.id)}
               className="px-3 py-1.5 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg flex items-center gap-1">
               <Trash2 size={12} /> Delete

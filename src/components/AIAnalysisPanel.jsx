@@ -11,7 +11,7 @@ export default function AIAnalysisPanel({ analysis, loading, error }) {
           </div>
           <div>
             <h3 className="font-semibold text-gray-900 dark:text-white">AI Analysis in Progress</h3>
-            <p className="text-sm text-gray-500 dark:text-slate-400">Evaluating reusability with Ollama...</p>
+            <p className="text-sm text-gray-500 dark:text-slate-400">Evaluating reusability with VIO AI...</p>
           </div>
         </div>
         <div className="space-y-2">
@@ -49,7 +49,7 @@ export default function AIAnalysisPanel({ analysis, loading, error }) {
           </div>
           <div>
             <h3 className="font-semibold text-gray-900 dark:text-white">AI Reusability Assessment</h3>
-            <p className="text-xs text-gray-500 dark:text-slate-400">Powered by Ollama (llama3.2)</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400">Powered by VIO (GPT-5.3-Codex / Claude 4.6 Sonnet)</p>
           </div>
         </div>
         <ScoreRing score={analysis.score} size={52} />

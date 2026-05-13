@@ -1,64 +1,71 @@
-const OLLAMA_URL = 'http://localhost:11434';
-const MODEL = 'llama3.1:8b';
+// Allow self-signed certificates for VIO internal API
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-// ── Core Ollama call (raw generate) ────────────────────
+const VIO_BASE_URL = 'https://vio.automotive-wan.com:446';
+const VIO_API_KEY = 'R0f_Yvf6sqLio8YsqqLqQAAu4yyG8llroNKVylAT4yo';
+const CODE_MODEL = 'VIO:GPT-5.3-Codex';   // Optimized for code analysis
+const DOC_MODEL  = 'VIO:Claude 4.6 Sonnet'; // Optimized for document analysis
+const DEFAULT_MODEL = DOC_MODEL;             // Default for general/chat tasks
+
+// ── Core VIO API call (chat completions) ───────────────
 async function callOllama(prompt, options = {}) {
-  const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+  const response = await fetch(`${VIO_BASE_URL}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${VIO_API_KEY}`,
+    },
     body: JSON.stringify({
-      model: MODEL,
-      prompt,
+      model: options.model || DEFAULT_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: options.temperature || 0.3,
+      max_tokens: options.maxTokens || 512,
       stream: false,
-      options: {
-        temperature: options.temperature || 0.3,
-        num_predict: options.maxTokens || 512,
-      },
     }),
   });
-  if (!response.ok) throw new Error(`Ollama error: ${response.status}`);
+  if (!response.ok) throw new Error(`VIO API error: ${response.status}`);
   const data = await response.json();
-  return data.response;
+  return data.choices[0].message.content;
 }
 
-// ── Ollama chat API (role-based, better for conversations) ──
+// ── VIO chat API (role-based, for conversations) ──
 async function callOllamaChat(messages, options = {}) {
-  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+  const response = await fetch(`${VIO_BASE_URL}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${VIO_API_KEY}`,
+    },
     body: JSON.stringify({
-      model: MODEL,
+      model: options.model || DEFAULT_MODEL,
       messages,
+      temperature: options.temperature || 0.3,
+      max_tokens: options.maxTokens || 512,
       stream: false,
-      options: {
-        temperature: options.temperature || 0.3,
-        num_predict: options.maxTokens || 512,
-        num_ctx: options.numCtx || 4096,
-      },
     }),
   });
-  if (!response.ok) throw new Error(`Ollama chat error: ${response.status}`);
+  if (!response.ok) throw new Error(`VIO API chat error: ${response.status}`);
   const data = await response.json();
-  return data.message?.content || '';
+  return data.choices[0]?.message?.content || '';
 }
 
-// ── Streaming Ollama chat (returns readable stream) ──
+// ── Streaming VIO chat (returns readable stream) ──
 async function callOllamaChatStream(messages, options = {}) {
-  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+  const response = await fetch(`${VIO_BASE_URL}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${VIO_API_KEY}`,
+    },
     body: JSON.stringify({
-      model: MODEL,
+      model: options.model || DEFAULT_MODEL,
       messages,
+      temperature: options.temperature || 0.3,
+      max_tokens: options.maxTokens || 512,
       stream: true,
-      options: {
-        temperature: options.temperature || 0.3,
-        num_predict: options.maxTokens || 512,
-        num_ctx: options.numCtx || 4096,
-      },
     }),
   });
-  if (!response.ok) throw new Error(`Ollama chat stream error: ${response.status}`);
+  if (!response.ok) throw new Error(`VIO API chat stream error: ${response.status}`);
   return response.body;
 }
 
@@ -82,6 +89,63 @@ function parseJSON(text) {
 }
 
 // ══════════════════════════════════════════════════════════
+// OCR TEXT CLEANUP (AI-powered)
+// Called when: Extracted text from scanned PDF/image has OCR artifacts
+// Purpose: Reconstruct clean text from garbled OCR output
+// ══════════════════════════════════════════════════════════
+async function cleanExtractedText(rawText) {
+  if (!rawText || rawText.length < 50) return rawText;
+
+  // Heuristic: detect if text looks garbled (high ratio of non-dictionary patterns)
+  const garbleIndicators = [
+    /[bcdfghjklmnpqrstvwxyz]{5,}/gi,  // consecutive consonants
+    /[a-z]{20,}/gi,                     // very long words without spaces
+    /[£€¢¥]\d/g,                        // OCR symbol confusion like (£8) for (EB)
+    /\b[a-z]{1,2}\b/g,                  // many tiny fragments
+  ];
+  let garbleScore = 0;
+  for (const pattern of garbleIndicators) {
+    const matches = rawText.match(pattern);
+    if (matches) garbleScore += matches.length;
+  }
+
+  // If text seems clean enough (low garble score relative to length), skip AI cleanup
+  const garbleRatio = garbleScore / (rawText.length / 100);
+  if (garbleRatio < 2) return rawText;
+
+  console.log(`[AI Cleanup] Garble ratio: ${garbleRatio.toFixed(1)}, cleaning ${rawText.length} chars...`);
+
+  const prompt = `You are an OCR text correction expert. The following text was extracted from a scanned PDF using OCR and contains errors: garbled words, broken formatting, symbol misrecognition (e.g. "£8" should be "EB"), merged words, and artifacts from logos/images.
+
+Your task: Reconstruct the ORIGINAL document text as accurately as possible.
+
+Rules:
+- Fix obvious OCR errors (garbled words, wrong symbols, merged text)
+- Preserve the document's original structure (headings, lists, sections)
+- Remove pure noise lines (random characters from images/logos)
+- Do NOT add content that wasn't in the original
+- Do NOT summarize — reproduce the full corrected text
+- Keep it factual and faithful to the source
+
+OCR TEXT:
+${rawText.substring(0, 3000)}
+
+CORRECTED TEXT:`;
+
+  try {
+    const cleaned = await callOllama(prompt, { temperature: 0.1, maxTokens: 2048 });
+    // Sanity check: cleaned text should be at least 30% of original length
+    if (cleaned && cleaned.length > rawText.length * 0.3) {
+      console.log(`[AI Cleanup] Cleaned: ${rawText.length} → ${cleaned.length} chars`);
+      return cleaned.trim();
+    }
+  } catch (err) {
+    console.warn('[AI Cleanup] Failed, using raw text:', err.message);
+  }
+  return rawText;
+}
+
+// ══════════════════════════════════════════════════════════
 // PROMPT 1: REUSABILITY ANALYSIS
 // Called when: User uploads code/doc → Step 4 (AI Analysis)
 // Purpose: Score the asset 0-100 and decide if it's reusable
@@ -90,8 +154,33 @@ async function analyzeReusability({ code, description, type, language }) {
   const content = code || description || '';
   const assetType = type || 'Code';
   const lang = language || 'unknown';
+  const isDocument = assetType.toLowerCase() === 'document';
 
-  const prompt = `You are a senior code reviewer. Analyze this ${assetType} written in ${lang} and rate its reusability for a shared knowledge base.
+  let prompt;
+  if (isDocument) {
+    prompt = `You are a senior technical writer and knowledge management expert. Analyze this document and rate its quality and reusability for a shared knowledge base.
+
+IMPORTANT: This text may have been extracted from a scanned PDF via OCR. Minor OCR artifacts (typos, formatting glitches) should NOT heavily penalize the document. Focus on the ACTUAL CONTENT quality, structure, and usefulness — not OCR extraction quality.
+
+DOCUMENT CONTENT:
+${content.substring(0, 1500)}
+
+Evaluate each dimension independently on a 0-100 scale:
+1. Clarity: Is the writing clear, concise, and easy to understand? Is it well-structured with headings and sections?
+2. Completeness: Does it cover the topic thoroughly? Are there gaps in information?
+3. Accuracy: Is the information correct, up-to-date, and well-referenced?
+4. Relevance: Is the content useful and applicable to the target audience?
+5. Reusability: Can this document be used across teams/projects? Is it generic enough to be widely applicable?
+
+The overall score is the weighted average: clarity(25%) + completeness(20%) + accuracy(20%) + relevance(15%) + reusability(20%).
+
+Respond with ONLY valid JSON, no other text:
+{"reusabilityLevel":N,"levelLabel":"label","score":N,"summary":"one line assessment","strengths":["strength1","strength2"],"weaknesses":["weakness1","weakness2"],"suggestions":["suggestion1","suggestion2"],"metrics":{"clarity":N,"completeness":N,"accuracy":N,"relevance":N,"reusability":N}}
+
+Levels: 1=Production-Ready(score 80-100), 2=Verified(60-79), 3=Reference(40-59), 4=Deprecated(0-39)
+JSON:`;
+  } else {
+    prompt = `You are a senior code reviewer. Analyze this ${assetType} written in ${lang} and rate its reusability for a shared knowledge base.
 
 CODE/CONTENT:
 ${content.substring(0, 1500)}
@@ -110,25 +199,49 @@ Respond with ONLY valid JSON, no other text:
 
 Levels: 1=Production-Ready(score 80-100), 2=Verified(60-79), 3=Reference(40-59), 4=Deprecated(0-39)
 JSON:`;
+  }
 
-  const response = await callOllama(prompt, { temperature: 0.5, maxTokens: 500 });
+  const modelToUse = isDocument ? DOC_MODEL : CODE_MODEL;
+  const response = await callOllama(prompt, { temperature: 0.5, maxTokens: 500, model: modelToUse });
   const parsed = parseJSON(response);
 
   if (parsed) {
-    parsed.reusabilityLevel = Math.min(4, Math.max(1, parseInt(parsed.reusabilityLevel) || 3));
-    parsed.score = Math.min(100, Math.max(0, parseInt(parsed.score) || 50));
+    // Clamp overall score to 0-100 integer
+    const rawScore = parseInt(parsed.score);
+    parsed.score = Math.min(100, Math.max(0, Math.round(isNaN(rawScore) ? 50 : rawScore)));
+    // Clamp all metric sub-scores to 0-100 integers
+    if (parsed.metrics && typeof parsed.metrics === 'object') {
+      const metricKeys = isDocument
+        ? ['clarity', 'completeness', 'accuracy', 'relevance', 'reusability']
+        : ['modularity', 'documentation', 'testability', 'portability', 'maintainability'];
+      for (const key of metricKeys) {
+        if (key in parsed.metrics) {
+          const raw = parseInt(parsed.metrics[key]);
+          parsed.metrics[key] = Math.min(100, Math.max(0, Math.round(isNaN(raw) ? 50 : raw)));
+        }
+      }
+    }
+    const rawLevel = parseInt(parsed.reusabilityLevel);
+    parsed.reusabilityLevel = Math.min(4, Math.max(1, isNaN(rawLevel) ? 3 : rawLevel));
     // Auto-assign level based on score if model got it wrong
     if (parsed.score >= 80) parsed.reusabilityLevel = 1;
     else if (parsed.score >= 60) parsed.reusabilityLevel = 2;
     else if (parsed.score >= 40) parsed.reusabilityLevel = 3;
     else parsed.reusabilityLevel = 4;
     parsed.levelLabel = ['', 'Production-Ready', 'Verified', 'Reference', 'Deprecated'][parsed.reusabilityLevel];
+    // Ensure arrays
+    parsed.strengths = Array.isArray(parsed.strengths) ? parsed.strengths : [];
+    parsed.weaknesses = Array.isArray(parsed.weaknesses) ? parsed.weaknesses : [];
+    parsed.suggestions = Array.isArray(parsed.suggestions) ? parsed.suggestions : [];
     return parsed;
   }
 
   // Fallback: basic heuristic scoring if LLM fails
   const score = computeFallbackScore(content, assetType);
   const level = score >= 80 ? 1 : score >= 60 ? 2 : score >= 40 ? 3 : 4;
+  const fallbackMetrics = isDocument
+    ? { clarity: score, completeness: Math.max(score - 20, 20), accuracy: Math.max(score - 10, 20), relevance: score, reusability: score }
+    : { modularity: score, documentation: Math.max(score - 20, 20), testability: Math.max(score - 10, 20), portability: score, maintainability: score };
   return {
     reusabilityLevel: level,
     levelLabel: ['', 'Production-Ready', 'Verified', 'Reference', 'Deprecated'][level],
@@ -136,8 +249,10 @@ JSON:`;
     summary: 'Automated heuristic analysis (AI response could not be parsed).',
     strengths: ['Content submitted for review'],
     weaknesses: ['Requires manual assessment'],
-    suggestions: ['Add documentation', 'Add error handling', 'Remove hardcoded values'],
-    metrics: { modularity: score, documentation: Math.max(score - 20, 20), testability: Math.max(score - 10, 20), portability: score, maintainability: score },
+    suggestions: isDocument
+      ? ['Improve document structure', 'Add references and sources', 'Include examples or diagrams']
+      : ['Add documentation', 'Add error handling', 'Remove hardcoded values'],
+    metrics: fallbackMetrics,
   };
 }
 
@@ -208,7 +323,7 @@ Return ONLY JSON:
 {"improvements":[{"category":"modularity","suggestion":"specific fix","priority":"high"}],"overallAdvice":"one paragraph summary"}
 JSON:`;
 
-  const response = await callOllama(prompt, { temperature: 0.3, maxTokens: 350 });
+  const response = await callOllama(prompt, { temperature: 0.3, maxTokens: 350, model: CODE_MODEL });
   const parsed = parseJSON(response);
 
   if (parsed && parsed.improvements) return parsed;
@@ -307,7 +422,7 @@ Return ONLY JSON:
 {"summary":"one line what it does","explanation":"2-3 paragraph explanation","usage":"how to use it in your project","dependencies":["dep1"]}
 JSON:`;
 
-  const response = await callOllama(prompt, { temperature: 0.3, maxTokens: 400 });
+  const response = await callOllama(prompt, { temperature: 0.3, maxTokens: 400, model: CODE_MODEL });
   const parsed = parseJSON(response);
 
   if (parsed) return parsed;
@@ -433,7 +548,7 @@ Rules to check:
 
 Return ONLY valid JSON.`;
 
-  const raw = await callOllama(prompt, { temperature: 0.2, maxTokens: 1024 });
+  const raw = await callOllama(prompt, { temperature: 0.2, maxTokens: 1024, model: CODE_MODEL });
   const result = parseJSON(raw);
   if (result) return result;
   return {
@@ -456,4 +571,5 @@ module.exports = {
   ebChat,
   ebChatStream,
   checkMISRACompliance,
+  cleanExtractedText,
 };

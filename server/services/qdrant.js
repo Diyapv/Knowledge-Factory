@@ -1,7 +1,8 @@
 const { QdrantClient } = require('@qdrant/js-client-rest');
 
-const OLLAMA_EMBED_URL = 'http://localhost:11434/api/embed';
-const EMBED_MODEL = 'nomic-embed-text';
+const VIO_EMBED_URL = 'https://vio.automotive-wan.com:446/embeddings';
+const VIO_API_KEY = 'R0f_Yvf6sqLio8YsqqLqQAAu4yyG8llroNKVylAT4yo';
+const EMBED_MODEL = 'text-embedding-ada-002';
 const COLLECTION = 'assets';
 const ACTIVITY_COLLECTION = 'activity_log';
 const COMMENTS_COLLECTION = 'comments';
@@ -23,54 +24,31 @@ const QUICKLINKS_COLLECTION = 'quicklinks';
 const STANDUP_PAGES_COLLECTION = 'standup_pages';
 const STANDUP_ENTRIES_COLLECTION = 'standup_entries';
 const MEETINGS_COLLECTION = 'meetings';
-const STANDUP_MESSAGES_COLLECTION = 'standup_messages';
-const WISHES_COLLECTION = 'wishes';
-const IDEAS_COLLECTION = 'ideas';
-const QUIZZES_COLLECTION = 'quizzes';
-const GALLERY_COLLECTION = 'photo_gallery';
-const SPRINTS_COLLECTION = 'sprint_planning';
-const TIMESHEETS_COLLECTION = 'timesheets';
-const LEAVE_REQUESTS_COLLECTION = 'leave_requests';
-const VECTOR_SIZE = 768;
+const VECTOR_SIZE = 1024;
 
 const client = new QdrantClient({ url: 'http://localhost:6333', checkCompatibility: false });
 
 async function ensureCollection() {
-  try {
-    await client.getCollection(COLLECTION);
-  } catch {
-    await client.createCollection(COLLECTION, {
-      vectors: { size: VECTOR_SIZE, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${COLLECTION}`);
+  // Helper: ensure a vector collection has the right size, recreate if mismatched
+  async function ensureVectorCollection(name, size) {
+    try {
+      const info = await client.getCollection(name);
+      const currentSize = info.config?.params?.vectors?.size;
+      if (currentSize && currentSize !== size) {
+        console.log(`Qdrant collection "${name}" has vector size ${currentSize}, expected ${size}. Recreating...`);
+        await client.deleteCollection(name);
+        await client.createCollection(name, { vectors: { size, distance: 'Cosine' } });
+        console.log(`Recreated Qdrant collection: ${name} (vector size ${size})`);
+      }
+    } catch {
+      await client.createCollection(name, { vectors: { size, distance: 'Cosine' } });
+      console.log(`Created Qdrant collection: ${name}`);
+    }
   }
-  // Activity log collection (dummy vector, we only use payload)
-  try {
-    await client.getCollection(ACTIVITY_COLLECTION);
-  } catch {
-    await client.createCollection(ACTIVITY_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${ACTIVITY_COLLECTION}`);
-  }
-  // Comments collection (dummy vector, we only use payload)
-  try {
-    await client.getCollection(COMMENTS_COLLECTION);
-  } catch {
-    await client.createCollection(COMMENTS_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${COMMENTS_COLLECTION}`);
-  }
-  // Knowledge base articles collection (full vector for semantic search)
-  try {
-    await client.getCollection(KB_COLLECTION);
-  } catch {
-    await client.createCollection(KB_COLLECTION, {
-      vectors: { size: VECTOR_SIZE, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${KB_COLLECTION}`);
-  }
+
+  // Collections using full embeddings (must match VECTOR_SIZE)
+  await ensureVectorCollection(COLLECTION, VECTOR_SIZE);
+  await ensureVectorCollection(KB_COLLECTION, VECTOR_SIZE);
   // Personal notes collection (dummy vector, payload-only)
   try {
     await client.getCollection(NOTES_COLLECTION);
@@ -231,97 +209,20 @@ async function ensureCollection() {
     });
     console.log(`Created Qdrant collection: ${MEETINGS_COLLECTION}`);
   }
-
-  // Standup Messages collection
-  try {
-    await client.getCollection(STANDUP_MESSAGES_COLLECTION);
-  } catch {
-    await client.createCollection(STANDUP_MESSAGES_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${STANDUP_MESSAGES_COLLECTION}`);
-  }
-
-  // Wishes collection
-  try {
-    await client.getCollection(WISHES_COLLECTION);
-  } catch {
-    await client.createCollection(WISHES_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${WISHES_COLLECTION}`);
-  }
-
-  // Ideas collection
-  try {
-    await client.getCollection(IDEAS_COLLECTION);
-  } catch {
-    await client.createCollection(IDEAS_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${IDEAS_COLLECTION}`);
-  }
-
-  // Quizzes collection
-  try {
-    await client.getCollection(QUIZZES_COLLECTION);
-  } catch {
-    await client.createCollection(QUIZZES_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${QUIZZES_COLLECTION}`);
-  }
-
-  // Photo Gallery collection
-  try {
-    await client.getCollection(GALLERY_COLLECTION);
-  } catch {
-    await client.createCollection(GALLERY_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${GALLERY_COLLECTION}`);
-  }
-
-  // Sprint Planning collection
-  try {
-    await client.getCollection(SPRINTS_COLLECTION);
-  } catch {
-    await client.createCollection(SPRINTS_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${SPRINTS_COLLECTION}`);
-  }
-
-  // Timesheets collection
-  try {
-    await client.getCollection(TIMESHEETS_COLLECTION);
-  } catch {
-    await client.createCollection(TIMESHEETS_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${TIMESHEETS_COLLECTION}`);
-  }
-
-  // Leave Requests collection
-  try {
-    await client.getCollection(LEAVE_REQUESTS_COLLECTION);
-  } catch {
-    await client.createCollection(LEAVE_REQUESTS_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${LEAVE_REQUESTS_COLLECTION}`);
-  }
 }
 
 async function getEmbedding(text) {
-  const res = await fetch(OLLAMA_EMBED_URL, {
+  const res = await fetch(VIO_EMBED_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${VIO_API_KEY}`,
+    },
     body: JSON.stringify({ model: EMBED_MODEL, input: text }),
   });
   if (!res.ok) throw new Error(`Embedding failed: ${res.status}`);
   const data = await res.json();
-  return data.embeddings[0];
+  return data.data[0].embedding;
 }
 
 function buildEmbedText(asset) {
@@ -379,6 +280,7 @@ async function upsertAsset(asset) {
         ratings: asset.ratings || {},
         ratingCount: asset.ratingCount || 0,
         originalFileName: asset.originalFileName || '',
+        storedFileName: asset.storedFileName || '',
         rejectionComment: asset.rejectionComment || '',
         rejectedBy: asset.rejectedBy || '',
         reviewedBy: asset.reviewedBy || '',
@@ -864,26 +766,10 @@ async function toggleFeedbackLike(feedbackId, username) {
   return { liked: idx < 0, count: likes.length };
 }
 
-async function updateFeedback(feedbackId, username, role, { title, content, category }) {
+async function deleteFeedback(feedbackId, username) {
   const existing = await client.retrieve(FEEDBACK_COLLECTION, { ids: [Number(feedbackId)], with_payload: true });
   if (!existing.length) throw new Error('Feedback not found');
-  const payload = existing[0].payload;
-  if (payload.username !== username && role !== 'admin') throw new Error('Not authorized');
-  if (title !== undefined) payload.title = title;
-  if (content !== undefined) payload.content = content;
-  if (category !== undefined) payload.category = category;
-  payload.updatedAt = new Date().toISOString();
-  await client.upsert(FEEDBACK_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(feedbackId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: feedbackId, ...payload };
-}
-
-async function deleteFeedback(feedbackId, username, role) {
-  const existing = await client.retrieve(FEEDBACK_COLLECTION, { ids: [Number(feedbackId)], with_payload: true });
-  if (!existing.length) throw new Error('Feedback not found');
-  if (existing[0].payload.username !== username && role !== 'admin') throw new Error('Not authorized');
+  if (existing[0].payload.username !== username) throw new Error('Not authorized');
   await client.delete(FEEDBACK_COLLECTION, { wait: true, points: [Number(feedbackId)] });
   return { deleted: true };
 }
@@ -991,8 +877,6 @@ async function addDevice(data) {
   const payload = {
     name: data.name || '',
     type: data.type || 'laptop',
-    category: data.category || '',
-    assetTag: data.assetTag || '',
     serialNumber: data.serialNumber || '',
     manufacturer: data.manufacturer || '',
     model: data.model || '',
@@ -1000,7 +884,6 @@ async function addDevice(data) {
     warrantyExpiry: data.warrantyExpiry || '',
     status: data.status || 'available',
     assignedTo: data.assignedTo || '',
-    employeeId: data.employeeId || '',
     assignedBy: data.assignedBy || '',
     assignedDate: data.assignedDate || '',
     location: data.location || '',
@@ -1025,7 +908,7 @@ async function getAllDevices(filters = {}) {
 
   const result = await client.scroll(DEVICES_COLLECTION, {
     filter: must.length ? { must } : undefined,
-    limit: 1000,
+    limit: 500,
     with_payload: true,
   });
   return (result.points || []).map(p => ({
@@ -1090,40 +973,6 @@ async function toggleRecognitionLike(recId, username) {
 async function deleteRecognition(recId) {
   await client.delete(RECOGNITION_COLLECTION, { wait: true, points: [Number(recId)] });
   return { deleted: true };
-}
-
-async function addRecognitionReply(recId, { username, name, text }) {
-  const existing = await client.retrieve(RECOGNITION_COLLECTION, { ids: [Number(recId)], with_payload: true });
-  if (!existing.length) throw new Error('Recognition not found');
-  const payload = existing[0].payload;
-  const replies = payload.replies || [];
-  const reply = { id: Date.now(), username, name, text, likes: [], createdAt: new Date().toISOString() };
-  replies.push(reply);
-  payload.replies = replies;
-  await client.upsert(RECOGNITION_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(recId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: recId, ...payload };
-}
-
-async function toggleRecognitionReplyLike(recId, replyId, username) {
-  const existing = await client.retrieve(RECOGNITION_COLLECTION, { ids: [Number(recId)], with_payload: true });
-  if (!existing.length) throw new Error('Recognition not found');
-  const payload = existing[0].payload;
-  const replies = payload.replies || [];
-  const reply = replies.find(r => r.id === Number(replyId));
-  if (!reply) throw new Error('Reply not found');
-  const likes = reply.likes || [];
-  const idx = likes.indexOf(username);
-  if (idx >= 0) likes.splice(idx, 1); else likes.push(username);
-  reply.likes = likes;
-  payload.replies = replies;
-  await client.upsert(RECOGNITION_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(recId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: recId, ...payload };
 }
 
 // ── Internal Job Board ──────────────────────────────────
@@ -1203,7 +1052,7 @@ async function deleteJob(jobId) {
 }
 
 // ── Employee Directory ──────────────────────────────────
-async function addEmployee({ employeeId, name, email, phone, department, role, designation, skills, location, joinDate, dateOfBirth, avatar, bio, addedBy }) {
+async function addEmployee({ employeeId, name, email, phone, department, role, designation, skills, location, joinDate, avatar, bio, addedBy }) {
   // Check for duplicates by employeeId or email
   const existing = await client.scroll(EMPLOYEES_COLLECTION, { limit: 5000, with_payload: true });
   for (const p of existing.points) {
@@ -1219,7 +1068,7 @@ async function addEmployee({ employeeId, name, email, phone, department, role, d
     employeeId: employeeId || '', name, email: email || '', phone: phone || '',
     department: department || '', role: role || '', designation: designation || '',
     skills: skills || [], location: location || 'EB India',
-    joinDate: joinDate || '', dateOfBirth: dateOfBirth || '', avatar: avatar || '', bio: bio || '',
+    joinDate: joinDate || '', avatar: avatar || '', bio: bio || '',
     addedBy, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   };
   await client.upsert(EMPLOYEES_COLLECTION, {
@@ -1280,11 +1129,6 @@ async function saveProfile(username, fields) {
     points: [{ id, vector: [0, 0, 0, 0], payload }],
   });
   return { id, ...payload };
-}
-
-async function getAllProfiles() {
-  const result = await client.scroll(PROFILES_COLLECTION, { limit: 5000, with_payload: true });
-  return result.points.map(p => ({ id: p.id, ...p.payload }));
 }
 
 // Normalize skills: supports both old format ["React"] and new format [{name,rating}]
@@ -1407,10 +1251,10 @@ async function closePoll(pollId, username) {
   return payload;
 }
 
-async function deletePoll(pollId, username, role) {
+async function deletePoll(pollId, username) {
   const existing = await client.retrieve(POLLS_COLLECTION, { ids: [Number(pollId)], with_payload: true });
   if (!existing.length) throw new Error('Poll not found');
-  if (existing[0].payload.username !== username && role !== 'admin') throw new Error('Not authorized');
+  if (existing[0].payload.username !== username) throw new Error('Not authorized');
   await client.delete(POLLS_COLLECTION, { wait: true, points: [Number(pollId)] });
   return { deleted: true };
 }
@@ -1725,37 +1569,6 @@ async function deleteStandupEntry(entryId) {
   return { deleted: true };
 }
 
-// ── Standup Messages ──
-async function addStandupMessage(data) {
-  const id = Date.now();
-  const payload = {
-    pageId: data.pageId,
-    text: data.text,
-    sender: data.sender,
-    senderName: data.senderName,
-    createdAt: new Date().toISOString(),
-  };
-  await client.upsert(STANDUP_MESSAGES_COLLECTION, {
-    wait: true,
-    points: [{ id, vector: [0.1, 0.1, 0.1, 0.1], payload }],
-  });
-  return { id, ...payload };
-}
-
-async function getStandupMessages(pageId) {
-  const result = await client.scroll(STANDUP_MESSAGES_COLLECTION, {
-    filter: { must: [{ key: 'pageId', match: { value: String(pageId) } }] },
-    limit: 500,
-    with_payload: true,
-  });
-  return (result.points || []).map(p => ({ id: p.id, ...p.payload })).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-}
-
-async function deleteStandupMessage(msgId) {
-  await client.delete(STANDUP_MESSAGES_COLLECTION, { wait: true, points: [Number(msgId)] });
-  return { deleted: true };
-}
-
 // ── Meeting Minutes ─────────────────────────────────────────────
 async function createMeeting({ title, date, time, attendees, notes, createdBy, displayName }) {
   const id = Date.now();
@@ -1848,485 +1661,6 @@ async function deleteActionItem(meetingId, actionId) {
   return { id: Number(meetingId), ...payload };
 }
 
-// ── Wishes ──
-async function createWish(data) {
-  const id = Date.now();
-  const payload = {
-    recipientName: data.recipientName,
-    recipientEmail: data.recipientEmail,
-    senderName: data.senderName,
-    senderUsername: data.senderUsername,
-    type: data.type,
-    message: data.message,
-    read: false,
-    createdAt: new Date().toISOString(),
-  };
-  await client.upsert(WISHES_COLLECTION, {
-    wait: true,
-    points: [{ id, vector: [0.1, 0.1, 0.1, 0.1], payload }],
-  });
-  return { id, ...payload };
-}
-
-async function getWishesForUser(name) {
-  const result = await client.scroll(WISHES_COLLECTION, {
-    filter: { must: [{ key: 'recipientName', match: { value: name } }] },
-    limit: 100,
-    with_payload: true,
-  });
-  return (result.points || []).map(p => ({ id: p.id, ...p.payload })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-}
-
-async function markWishRead(wishId) {
-  const existing = await client.retrieve(WISHES_COLLECTION, { ids: [Number(wishId)], with_payload: true });
-  if (!existing.length) throw new Error('Wish not found');
-  const payload = { ...existing[0].payload, read: true };
-  await client.upsert(WISHES_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(wishId), vector: [0.1, 0.1, 0.1, 0.1], payload }],
-  });
-  return { id: Number(wishId), ...payload };
-}
-
-// ── Idea Box / Innovation Board ──────────────────────────
-async function createIdea({ title, description, category, submittedBy, submittedByName }) {
-  const id = Date.now();
-  const payload = {
-    title, description, category: category || 'General',
-    submittedBy, submittedByName,
-    upvotes: [], comments: [],
-    status: 'submitted', // submitted | under-review | approved | implemented | rejected
-    ideaOfTheMonth: false,
-    createdAt: new Date().toISOString(),
-  };
-  await client.upsert(IDEAS_COLLECTION, {
-    wait: true,
-    points: [{ id, vector: [0, 0, 0, 0], payload }],
-  });
-  return { id, ...payload };
-}
-
-async function getAllIdeas() {
-  const result = await client.scroll(IDEAS_COLLECTION, { limit: 1000, with_payload: true });
-  return result.points.map(p => ({ id: p.id, ...p.payload })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-}
-
-async function upvoteIdea(ideaId, username) {
-  const existing = await client.retrieve(IDEAS_COLLECTION, { ids: [Number(ideaId)], with_payload: true });
-  if (!existing.length) throw new Error('Idea not found');
-  const payload = existing[0].payload;
-  const upvotes = payload.upvotes || [];
-  const idx = upvotes.indexOf(username);
-  if (idx >= 0) upvotes.splice(idx, 1); else upvotes.push(username);
-  payload.upvotes = upvotes;
-  await client.upsert(IDEAS_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(ideaId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: ideaId, ...payload };
-}
-
-async function setIdeaOfTheMonth(ideaId) {
-  // Clear any existing idea of the month
-  const all = await client.scroll(IDEAS_COLLECTION, { limit: 1000, with_payload: true });
-  for (const p of all.points) {
-    if (p.payload.ideaOfTheMonth) {
-      p.payload.ideaOfTheMonth = false;
-      await client.upsert(IDEAS_COLLECTION, {
-        wait: true,
-        points: [{ id: p.id, vector: [0, 0, 0, 0], payload: p.payload }],
-      });
-    }
-  }
-  // Set the new one
-  const existing = await client.retrieve(IDEAS_COLLECTION, { ids: [Number(ideaId)], with_payload: true });
-  if (!existing.length) throw new Error('Idea not found');
-  const payload = { ...existing[0].payload, ideaOfTheMonth: true, status: 'approved' };
-  await client.upsert(IDEAS_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(ideaId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: ideaId, ...payload };
-}
-
-async function updateIdeaStatus(ideaId, status) {
-  const existing = await client.retrieve(IDEAS_COLLECTION, { ids: [Number(ideaId)], with_payload: true });
-  if (!existing.length) throw new Error('Idea not found');
-  const payload = { ...existing[0].payload, status };
-  await client.upsert(IDEAS_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(ideaId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: ideaId, ...payload };
-}
-
-async function deleteIdea(ideaId) {
-  await client.delete(IDEAS_COLLECTION, { wait: true, points: [Number(ideaId)] });
-  return { deleted: true };
-}
-
-async function addIdeaComment(ideaId, { username, name, text }) {
-  const existing = await client.retrieve(IDEAS_COLLECTION, { ids: [Number(ideaId)], with_payload: true });
-  if (!existing.length) throw new Error('Idea not found');
-  const payload = existing[0].payload;
-  const comments = payload.comments || [];
-  comments.push({ id: Date.now(), username, name, text, createdAt: new Date().toISOString() });
-  payload.comments = comments;
-  await client.upsert(IDEAS_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(ideaId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: ideaId, ...payload };
-}
-
-// ── Trivia / Quiz Arena ──────────────────────────────────
-async function createQuiz({ title, description, category, questions, timeLimit, createdBy, createdByName }) {
-  const id = Date.now();
-  const payload = {
-    title, description, category: category || 'General',
-    questions: (questions || []).map((q, idx) => ({
-      id: idx, question: q.question, options: q.options,
-      correctAnswer: q.correctAnswer, points: q.points || 10,
-    })),
-    timeLimit: timeLimit || 0,
-    attempts: [],
-    status: 'active',
-    createdBy, createdByName,
-    createdAt: new Date().toISOString(),
-  };
-  await client.upsert(QUIZZES_COLLECTION, {
-    wait: true,
-    points: [{ id, vector: [0, 0, 0, 0], payload }],
-  });
-  return { id, ...payload };
-}
-
-async function getAllQuizzes() {
-  const result = await client.scroll(QUIZZES_COLLECTION, { limit: 1000, with_payload: true });
-  return result.points.map(p => ({ id: p.id, ...p.payload }))
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-}
-
-async function getQuiz(quizId) {
-  const existing = await client.retrieve(QUIZZES_COLLECTION, { ids: [Number(quizId)], with_payload: true });
-  if (!existing.length) throw new Error('Quiz not found');
-  return { id: existing[0].id, ...existing[0].payload };
-}
-
-async function updateQuiz(quizId, fields) {
-  const existing = await client.retrieve(QUIZZES_COLLECTION, { ids: [Number(quizId)], with_payload: true });
-  if (!existing.length) throw new Error('Quiz not found');
-  const payload = { ...existing[0].payload, ...fields, updatedAt: new Date().toISOString() };
-  await client.upsert(QUIZZES_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(quizId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: quizId, ...payload };
-}
-
-async function deleteQuiz(quizId) {
-  await client.delete(QUIZZES_COLLECTION, { wait: true, points: [Number(quizId)] });
-  return { deleted: true };
-}
-
-async function submitQuizAttempt(quizId, { username, name, answers, timeTaken }) {
-  const existing = await client.retrieve(QUIZZES_COLLECTION, { ids: [Number(quizId)], with_payload: true });
-  if (!existing.length) throw new Error('Quiz not found');
-  const payload = existing[0].payload;
-  // Calculate score
-  let score = 0;
-  const results = (payload.questions || []).map((q, idx) => {
-    const userAnswer = answers[idx];
-    const correct = userAnswer === q.correctAnswer;
-    if (correct) score += (q.points || 10);
-    return { questionId: q.id, userAnswer, correct };
-  });
-  const totalPossible = payload.questions.reduce((s, q) => s + (q.points || 10), 0);
-  // Remove previous attempt by same user
-  payload.attempts = (payload.attempts || []).filter(a => a.username !== username);
-  const attempt = {
-    username, name, answers, results, score, totalPossible,
-    timeTaken: timeTaken || 0,
-    percentage: totalPossible > 0 ? Math.round((score / totalPossible) * 100) : 0,
-    completedAt: new Date().toISOString(),
-  };
-  payload.attempts.push(attempt);
-  await client.upsert(QUIZZES_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(quizId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: quizId, attempt, ...payload };
-}
-
-async function getQuizLeaderboard() {
-  const result = await client.scroll(QUIZZES_COLLECTION, { limit: 1000, with_payload: true });
-  const userScores = {};
-  for (const p of result.points) {
-    for (const a of (p.payload.attempts || [])) {
-      if (!userScores[a.username]) userScores[a.username] = { name: a.name, totalScore: 0, quizCount: 0, totalPercentage: 0 };
-      userScores[a.username].totalScore += a.score;
-      userScores[a.username].quizCount += 1;
-      userScores[a.username].totalPercentage += a.percentage;
-    }
-  }
-  return Object.entries(userScores)
-    .map(([username, data]) => ({
-      username, name: data.name, totalScore: data.totalScore,
-      quizCount: data.quizCount,
-      avgPercentage: Math.round(data.totalPercentage / data.quizCount),
-    }))
-    .sort((a, b) => b.totalScore - a.totalScore);
-}
-
-// ── Photo Gallery / Wall ─────────────────────────────────
-async function createPhoto({ title, description, category, imageData, uploadedBy, uploadedByName }) {
-  const id = Date.now();
-  const payload = {
-    title: title || '', description: description || '',
-    category: category || 'General',
-    imageData: imageData || '',
-    reactions: {},
-    comments: [],
-    uploadedBy, uploadedByName,
-    createdAt: new Date().toISOString(),
-  };
-  await client.upsert(GALLERY_COLLECTION, {
-    wait: true,
-    points: [{ id, vector: [0, 0, 0, 0], payload }],
-  });
-  return { id, ...payload };
-}
-
-async function getAllPhotos() {
-  const result = await client.scroll(GALLERY_COLLECTION, { limit: 1000, with_payload: true });
-  return result.points.map(p => ({ id: p.id, ...p.payload }))
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-}
-
-async function deletePhoto(photoId) {
-  await client.delete(GALLERY_COLLECTION, { wait: true, points: [Number(photoId)] });
-  return { deleted: true };
-}
-
-async function togglePhotoReaction(photoId, { username, reaction }) {
-  const existing = await client.retrieve(GALLERY_COLLECTION, { ids: [Number(photoId)], with_payload: true });
-  if (!existing.length) throw new Error('Photo not found');
-  const payload = existing[0].payload;
-  if (!payload.reactions) payload.reactions = {};
-  if (!payload.reactions[reaction]) payload.reactions[reaction] = [];
-  const idx = payload.reactions[reaction].indexOf(username);
-  if (idx >= 0) {
-    payload.reactions[reaction].splice(idx, 1);
-  } else {
-    payload.reactions[reaction].push(username);
-  }
-  await client.upsert(GALLERY_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(photoId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: photoId, ...payload };
-}
-
-async function addPhotoComment(photoId, { username, name, text }) {
-  const existing = await client.retrieve(GALLERY_COLLECTION, { ids: [Number(photoId)], with_payload: true });
-  if (!existing.length) throw new Error('Photo not found');
-  const payload = existing[0].payload;
-  if (!payload.comments) payload.comments = [];
-  payload.comments.push({ username, name, text, createdAt: new Date().toISOString() });
-  await client.upsert(GALLERY_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(photoId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: photoId, ...payload };
-}
-
-// ── Sprint Planning / Poker Points ──────────────────────────
-// ── Planning Poker (Story Point Estimation) ──────────────────
-async function createPokerStory({ title, createdBy, createdByName, participants }) {
-  const id = Date.now();
-  const payload = {
-    title,
-    participants: participants || [],
-    votes: {},
-    status: 'open',
-    createdBy,
-    createdByName,
-    createdAt: new Date().toISOString(),
-  };
-  await client.upsert(SPRINTS_COLLECTION, {
-    wait: true,
-    points: [{ id, vector: [0, 0, 0, 0], payload }],
-  });
-  return { id, ...payload };
-}
-
-async function getAllPokerStories() {
-  const result = await client.scroll(SPRINTS_COLLECTION, { limit: 1000, with_payload: true });
-  return result.points.map(p => ({ id: p.id, ...p.payload }))
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-}
-
-async function getPokerStory(storyId) {
-  const existing = await client.retrieve(SPRINTS_COLLECTION, { ids: [Number(storyId)], with_payload: true });
-  if (!existing.length) throw new Error('Story not found');
-  return { id: existing[0].id, ...existing[0].payload };
-}
-
-async function votePokerStory(storyId, { username, name, points }) {
-  const existing = await client.retrieve(SPRINTS_COLLECTION, { ids: [Number(storyId)], with_payload: true });
-  if (!existing.length) throw new Error('Story not found');
-  const payload = existing[0].payload;
-  if (payload.status === 'closed') throw new Error('Voting is closed');
-  payload.votes[username] = { name, points };
-  await client.upsert(SPRINTS_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(storyId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: Number(storyId), ...payload };
-}
-
-async function closePokerStory(storyId) {
-  const existing = await client.retrieve(SPRINTS_COLLECTION, { ids: [Number(storyId)], with_payload: true });
-  if (!existing.length) throw new Error('Story not found');
-  const payload = existing[0].payload;
-  payload.status = 'closed';
-  const numericVotes = Object.values(payload.votes).map(v => v.points).filter(p => p !== '?').map(Number);
-  if (numericVotes.length > 0) {
-    payload.average = Math.round(numericVotes.reduce((a, b) => a + b, 0) / numericVotes.length * 10) / 10;
-  }
-  await client.upsert(SPRINTS_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(storyId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: Number(storyId), ...payload };
-}
-
-async function reopenPokerStory(storyId) {
-  const existing = await client.retrieve(SPRINTS_COLLECTION, { ids: [Number(storyId)], with_payload: true });
-  if (!existing.length) throw new Error('Story not found');
-  const payload = existing[0].payload;
-  payload.status = 'open';
-  payload.votes = {};
-  payload.average = null;
-  await client.upsert(SPRINTS_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(storyId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: Number(storyId), ...payload };
-}
-
-async function deletePokerStory(storyId) {
-  await client.delete(SPRINTS_COLLECTION, { wait: true, points: [Number(storyId)] });
-  return { deleted: true };
-}
-
-// ── Timesheet Management ──────────────────────────────────
-async function saveTimesheet(username, displayName, { date, entries, totalHours, notes, status, submittedAt }) {
-  // Stable ID per user+date
-  const key = `ts_${username}_${date}`;
-  let id = 0;
-  for (let i = 0; i < key.length; i++) id = ((id << 5) - id + key.charCodeAt(i)) | 0;
-  id = Math.abs(id);
-  const payload = {
-    username, displayName,
-    date,
-    entries: entries || [], // [{ project, task, hours, description, billable, category }]
-    totalHours: totalHours || 0,
-    notes: notes || '',
-    status: status || 'draft', // draft | submitted | approved | rejected
-    submittedAt: submittedAt || null,
-    updatedAt: new Date().toISOString(),
-  };
-  await client.upsert(TIMESHEETS_COLLECTION, {
-    wait: true,
-    points: [{ id, vector: [0, 0, 0, 0], payload }],
-  });
-  return { id, ...payload };
-}
-
-async function getTimesheetByDate(username, date) {
-  const key = `ts_${username}_${date}`;
-  let id = 0;
-  for (let i = 0; i < key.length; i++) id = ((id << 5) - id + key.charCodeAt(i)) | 0;
-  id = Math.abs(id);
-  try {
-    const result = await client.retrieve(TIMESHEETS_COLLECTION, { ids: [id], with_payload: true });
-    if (result.length && result[0].payload.username === username) return { id: result[0].id, ...result[0].payload };
-  } catch {}
-  return null;
-}
-
-async function getUserTimesheets(username, startDate, endDate) {
-  const result = await client.scroll(TIMESHEETS_COLLECTION, { limit: 5000, with_payload: true });
-  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
-    .filter(t => t.username === username && (!startDate || t.date >= startDate) && (!endDate || t.date <= endDate))
-    .sort((a, b) => b.date.localeCompare(a.date));
-}
-
-async function getAllTimesheets(date) {
-  const result = await client.scroll(TIMESHEETS_COLLECTION, { limit: 5000, with_payload: true });
-  let sheets = (result.points || []).map(p => ({ id: p.id, ...p.payload }));
-  if (date) sheets = sheets.filter(t => t.date === date);
-  return sheets.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
-}
-
-// ── Leave Requests ──────────────────────────────────
-async function createLeaveRequest(username, displayName, { type, startDate, endDate, reason }) {
-  const id = Date.now();
-  const payload = {
-    username, displayName,
-    type, // 'casual' | 'sick' | 'earned' | 'wfh' | 'comp-off'
-    startDate, endDate,
-    days: Math.max(1, Math.ceil((new Date(endDate) - new Date(startDate)) / 86400000) + 1),
-    reason: reason || '',
-    status: 'pending', // 'pending' | 'approved' | 'rejected'
-    approvedBy: null,
-    approvedByName: null,
-    comment: '',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  await client.upsert(LEAVE_REQUESTS_COLLECTION, {
-    wait: true,
-    points: [{ id, vector: [0, 0, 0, 0], payload }],
-  });
-  return { id, ...payload };
-}
-
-async function getAllLeaveRequests() {
-  const result = await client.scroll(LEAVE_REQUESTS_COLLECTION, { limit: 5000, with_payload: true });
-  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-}
-
-async function getUserLeaveRequests(username) {
-  const result = await client.scroll(LEAVE_REQUESTS_COLLECTION, { limit: 5000, with_payload: true });
-  return (result.points || []).map(p => ({ id: p.id, ...p.payload }))
-    .filter(r => r.username === username)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-}
-
-async function updateLeaveRequest(requestId, { status, approvedBy, approvedByName, comment }) {
-  const existing = await client.retrieve(LEAVE_REQUESTS_COLLECTION, { ids: [Number(requestId)], with_payload: true });
-  if (!existing.length) throw new Error('Leave request not found');
-  const payload = {
-    ...existing[0].payload,
-    status, approvedBy, approvedByName,
-    comment: comment || '',
-    updatedAt: new Date().toISOString(),
-  };
-  await client.upsert(LEAVE_REQUESTS_COLLECTION, {
-    wait: true,
-    points: [{ id: Number(requestId), vector: [0, 0, 0, 0], payload }],
-  });
-  return { id: Number(requestId), ...payload };
-}
-
-async function deleteLeaveRequest(requestId) {
-  await client.delete(LEAVE_REQUESTS_COLLECTION, { wait: true, points: [Number(requestId)] });
-  return { deleted: true };
-}
-
 module.exports = {
   ensureCollection,
   upsertAsset,
@@ -2363,7 +1697,6 @@ module.exports = {
   addReply,
   toggleFeedbackLike,
   deleteFeedback,
-  updateFeedback,
   deleteReply,
   toggleReplyLike,
   saveDailyLog,
@@ -2378,8 +1711,6 @@ module.exports = {
   getAllRecognitions,
   toggleRecognitionLike,
   deleteRecognition,
-  addRecognitionReply,
-  toggleRecognitionReplyLike,
   createJob,
   getAllJobs,
   getJobById,
@@ -2395,7 +1726,6 @@ module.exports = {
   searchEmployeesBySkill,
   getProfile,
   saveProfile,
-  getAllProfiles,
   createPoll,
   getAllPolls,
   votePoll,
@@ -2426,9 +1756,6 @@ module.exports = {
   getStandupEntries,
   updateStandupEntry,
   deleteStandupEntry,
-  addStandupMessage,
-  getStandupMessages,
-  deleteStandupMessage,
   createMeeting,
   getAllMeetings,
   getMeeting,
@@ -2437,42 +1764,4 @@ module.exports = {
   addActionItem,
   updateActionItem,
   deleteActionItem,
-  createWish,
-  getWishesForUser,
-  markWishRead,
-  createIdea,
-  getAllIdeas,
-  upvoteIdea,
-  setIdeaOfTheMonth,
-  updateIdeaStatus,
-  deleteIdea,
-  addIdeaComment,
-  createQuiz,
-  getAllQuizzes,
-  getQuiz,
-  updateQuiz,
-  deleteQuiz,
-  submitQuizAttempt,
-  getQuizLeaderboard,
-  createPhoto,
-  getAllPhotos,
-  deletePhoto,
-  togglePhotoReaction,
-  addPhotoComment,
-  createPokerStory,
-  getAllPokerStories,
-  getPokerStory,
-  votePokerStory,
-  closePokerStory,
-  reopenPokerStory,
-  deletePokerStory,
-  saveTimesheet,
-  getTimesheetByDate,
-  getUserTimesheets,
-  getAllTimesheets,
-  createLeaveRequest,
-  getAllLeaveRequests,
-  getUserLeaveRequests,
-  updateLeaveRequest,
-  deleteLeaveRequest,
 };

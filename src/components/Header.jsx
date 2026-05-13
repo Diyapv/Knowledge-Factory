@@ -10,23 +10,12 @@ export default function Header({ title, subtitle, onMenuClick }) {
   const [notifications, setNotifications] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const searchRef = useRef(null);
-  const notifRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchSearchSuggestions().then(setSuggestions).catch(() => {});
     fetchNotifications().then(setNotifications).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    function handleClickOutside(e) {
-      if (notifRef.current && !notifRef.current.contains(e.target)) {
-        setShowNotif(false);
-      }
-    }
-    if (showNotif) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showNotif]);
 
   // Keyboard shortcut: Ctrl+K to open search
   useEffect(() => {
@@ -89,7 +78,7 @@ export default function Header({ title, subtitle, onMenuClick }) {
           </button>
 
           {/* Notifications */}
-          <div className="relative" ref={notifRef}>
+          <div className="relative">
             <button
               onClick={() => setShowNotif(!showNotif)}
               className="relative p-2 text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-all active:scale-95"
