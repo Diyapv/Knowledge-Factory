@@ -2,13 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, Plus, X, ChevronLeft, ChevronRight, Users, Trash2, Edit2,
-  Clock, AlertTriangle, CheckCircle2, ArrowLeft, History, UserPlus, UserMinus, AtSign, Link as LinkIcon
+  Clock, AlertTriangle, CheckCircle2, ArrowLeft, History, UserPlus, UserMinus, AtSign, Link as LinkIcon, MessageCircle, Send
 } from 'lucide-react';
 import {
   fetchStandupPages, createStandupPageApi, updateStandupMembersApi, deleteStandupPageApi,
   fetchStandupEntries, addStandupEntryApi, updateStandupEntryApi, deleteStandupEntryApi,
-  fetchEmployees
+  fetchEmployees, fetchStandupMessages, sendStandupMessage, deleteStandupMessageApi
 } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 function formatDate(date) {
   const y = date.getFullYear();
@@ -18,6 +19,7 @@ function formatDate(date) {
 }
 
 export default function StandupNotes() {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [pages, setPages] = useState([]);
   const [activePage, setActivePage] = useState(null);
@@ -35,13 +37,18 @@ export default function StandupNotes() {
   const [allEmployees, setAllEmployees] = useState([]);
   const [memberSearch, setMemberSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [filter, setFilter] = useState('all');
   const searchRef = useRef(null);
+  const [activeTab, setActiveTab] = useState('updates');
+  const [messages, setMessages] = useState([]);
+  const [msgText, setMsgText] = useState('');
+  const messagesEndRef = useRef(null);
 
-  const currentUser = JSON.parse(sessionStorage.getItem('kf_user') || '{}');
+  const currentUser = user || {};
   const username = currentUser.name || currentUser.username || '';
   const dateStr = formatDate(selectedDate);
 
-  useEffect(() => { loadPages(); loadEmployees(); }, []);
+  useEffect(() => { if (username) loadPages(); loadEmployees(); }, [username]);
 
   // Open page directly from URL param ?page=<id>
   useEffect(() => {
@@ -66,13 +73,44 @@ export default function StandupNotes() {
     if (activePage) loadEntries();
   }, [activePage, selectedDate]);
 
+  useEffect(() => {
+    if (activePage) loadMessages();
+  }, [activePage]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  async function loadMessages() {
+    if (!activePage) return;
+    try { setMessages(await fetchStandupMessages(activePage.id)); }
+    catch (e) { console.error(e); }
+  }
+
+  async function handleSendMessage(e) {
+    e.preventDefault();
+    if (!msgText.trim()) return;
+    try {
+      await sendStandupMessage(activePage.id, {
+        text: msgText.trim(),
+        sender: username,
+        senderName: currentUser.displayName || currentUser.name || username,
+      });
+      setMsgText('');
+      loadMessages();
+    } catch (err) { showToast('Failed to send message'); }
+  }
+
+  async function handleDeleteMessage(msgId) {
+    try { await deleteStandupMessageApi(msgId); loadMessages(); }
+    catch (e) { showToast('Failed to delete'); }
+  }
+
   async function loadPages() {
     setLoading(true);
     try {
       const data = await fetchStandupPages();
-      // Filter: only show pages where user is a member (case-insensitive)
-      const myPages = data.filter(p => (p.members || []).some(m => m.toLowerCase() === username.toLowerCase()));
-      setPages(myPages);
+      setPages(data);
     } catch (e) { console.error(e); }
     setLoading(false);
   }
@@ -215,17 +253,36 @@ export default function StandupNotes() {
           </button>
         </div>
 
-        {loading ? (
+        {/* Filter Tabs */}
+        <div className="flex gap-2 mb-4">
+          {[
+            { key: 'all', label: 'All' },
+            { key: 'mine', label: 'Created by Me' },
+            { key: 'shared', label: 'Shared with Me' },
+          ].map(f => (
+            <button key={f.key} onClick={() => setFilter(f.key)}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${filter === f.key ? 'bg-teal-600 text-white shadow' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {(() => {
+          const filtered = pages.filter(p => {
+            if (filter === 'mine') return p.createdBy?.toLowerCase() === username.toLowerCase();
+            if (filter === 'shared') return p.createdBy?.toLowerCase() !== username.toLowerCase() && (p.members || []).some(m => m.toLowerCase() === username.toLowerCase());
+            return true;
+          });
+          return loading ? (
           <div className="text-center text-gray-500 py-12">Loading...</div>
-        ) : pages.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="text-center py-16">
             <ClipboardList className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-500 dark:text-gray-400 text-lg">No standup pages yet</p>
-            <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Create one or ask a team member to add you</p>
+            <p className="text-gray-500 dark:text-gray-400 text-lg">No standup pages found</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {pages.map(page => (
+            {filtered.map(page => (
               <div
                 key={page.id}
                 onClick={() => openPage(page)}
@@ -251,15 +308,24 @@ export default function StandupNotes() {
                   <span className="mx-1">&middot;</span>
                   <span>by {page.displayName}</span>
                 </div>
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {(page.members || []).slice(0, 5).map(m => (
+                    <span key={m} className="px-2 py-0.5 bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-xs rounded-full">{m}</span>
+                  ))}
+                  {(page.members || []).length > 5 && (
+                    <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 text-xs rounded-full">+{(page.members || []).length - 5} more</span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
-        )}
+        );
+        })()}
 
         {/* Create Page Modal */}
         {showCreatePage && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl">
+          <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl my-auto">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white">New Standup Page</h2>
                 <button onClick={() => setShowCreatePage(false)} className="text-gray-400 hover:text-gray-600">
@@ -381,8 +447,8 @@ export default function StandupNotes() {
         </button>
         <ClipboardList className="w-6 h-6 text-teal-500" />
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">{activePage.name}</h1>
-        {isOwner && (
-          <div className="flex gap-2 ml-auto">
+        <div className="flex gap-2 ml-auto">
+          {isOwner && (
             <button
               onClick={() => {
                 const link = `${window.location.origin}/standups?page=${activePage.id}`;
@@ -394,25 +460,44 @@ export default function StandupNotes() {
             >
               <LinkIcon className="w-4 h-4" /> Copy Link
             </button>
-            <button
-              onClick={() => setShowMembers(true)}
-              className="flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-            >
-              <Users className="w-4 h-4" /> Members ({(activePage.members || []).length})
-            </button>
+          )}
+          <button
+            onClick={() => setShowMembers(true)}
+            className="flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+          >
+            <Users className="w-4 h-4" /> Members ({(activePage.members || []).length})
+          </button>
+          {isOwner && (
             <button
               onClick={() => handleDeletePage(activePage.id)}
               className="text-sm px-3 py-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
             >
               <Trash2 className="w-4 h-4" />
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
       {activePage.description && (
         <p className="text-sm text-gray-500 dark:text-gray-400 ml-10 mb-4">{activePage.description}</p>
       )}
 
+      {/* Tabs */}
+      <div className="flex gap-1 mb-5 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
+        <button
+          onClick={() => setActiveTab('updates')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'updates' ? 'bg-white dark:bg-gray-700 text-teal-700 dark:text-teal-300 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
+        >
+          <ClipboardList className="w-4 h-4" /> Updates
+        </button>
+        <button
+          onClick={() => setActiveTab('chat')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'chat' ? 'bg-white dark:bg-gray-700 text-teal-700 dark:text-teal-300 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
+        >
+          <MessageCircle className="w-4 h-4" /> Group Chat
+        </button>
+      </div>
+
+      {activeTab === 'updates' && (<>
       {/* Date Navigation */}
       <div className="flex items-center gap-4 mb-6">
         <button onClick={() => changeDate(-1)} className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600">
@@ -493,11 +578,61 @@ export default function StandupNotes() {
           ))}
         </div>
       )}
+      </>)}
+
+      {/* Chat Tab */}
+      {activeTab === 'chat' && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-col" style={{ height: '65vh' }}>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {messages.length === 0 ? (
+              <div className="text-center text-gray-400 dark:text-gray-500 py-12">
+                <MessageCircle className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+                <p>No messages yet. Start the conversation!</p>
+              </div>
+            ) : messages.map(msg => {
+              const isMe = msg.sender?.toLowerCase() === username.toLowerCase();
+              return (
+                <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[75%] rounded-2xl px-4 py-2 ${isMe ? 'bg-teal-600 text-white rounded-br-md' : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white rounded-bl-md'}`}>
+                    {!isMe && <p className="text-xs font-semibold text-teal-600 dark:text-teal-400 mb-0.5">{msg.senderName || msg.sender}</p>}
+                    <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                    <div className={`flex items-center gap-2 mt-1 ${isMe ? 'justify-end' : ''}`}>
+                      <span className={`text-xs ${isMe ? 'text-teal-200' : 'text-gray-400'}`}>
+                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {isMe && (
+                        <button onClick={() => handleDeleteMessage(msg.id)} className="text-xs text-teal-200 hover:text-red-300 opacity-0 group-hover:opacity-100">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+          {/* Input */}
+          <form onSubmit={handleSendMessage} className="border-t border-gray-200 dark:border-gray-700 p-3 flex gap-2">
+            <input
+              type="text"
+              value={msgText}
+              onChange={e => setMsgText(e.target.value)}
+              placeholder="Type a message..."
+              className="flex-1 border border-gray-300 dark:border-gray-600 rounded-full px-4 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+            <button type="submit" className="p-2 bg-teal-600 text-white rounded-full hover:bg-teal-700 transition disabled:opacity-50" disabled={!msgText.trim()}>
+              <Send className="w-4 h-4" />
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Entry Form Modal */}
       {showEntry && (
-        <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-lg shadow-xl my-8">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-2xl shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">
                 {editingEntry ? 'Edit Update' : 'Post Daily Update'} — {dateStr}
@@ -516,7 +651,7 @@ export default function StandupNotes() {
                   onChange={e => setEntryForm({ ...entryForm, yesterday: e.target.value })}
                   rows={3}
                   placeholder="Completed task X, reviewed PR #123..."
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
                 />
               </div>
               <div>
@@ -528,7 +663,7 @@ export default function StandupNotes() {
                   onChange={e => setEntryForm({ ...entryForm, today: e.target.value })}
                   rows={3}
                   placeholder="Working on feature Y, standup meeting..."
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
                 />
               </div>
               <div>
@@ -540,7 +675,7 @@ export default function StandupNotes() {
                   onChange={e => setEntryForm({ ...entryForm, blockers: e.target.value })}
                   rows={2}
                   placeholder="Waiting for API keys, build is broken..."
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
                 />
               </div>
               <div className="flex justify-end gap-3 pt-2">
@@ -562,66 +697,73 @@ export default function StandupNotes() {
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-sm shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <Users className="w-5 h-5 text-teal-500" /> Manage Members
+                <Users className="w-5 h-5 text-teal-500" /> {isOwner ? 'Manage Members' : 'Group Members'}
               </h2>
               <button onClick={() => setShowMembers(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            {/* @ mention to add */}
-            <div className="relative mb-3">
-              <div className="flex items-center border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700">
-                <AtSign className="w-4 h-4 text-gray-400 ml-2" />
-                <input
-                  ref={searchRef}
-                  type="text"
-                  value={memberSearch}
-                  onChange={e => { setMemberSearch(e.target.value); setShowSuggestions(true); }}
-                  onFocus={() => setShowSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                  placeholder="Type @ to add member..."
-                  className="flex-1 p-2 bg-transparent text-gray-900 dark:text-white outline-none text-sm"
-                />
-              </div>
-              {showSuggestions && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-40 overflow-y-auto z-10">
-                  {getFilteredSuggestions(activePage.members || []).length === 0 ? (
-                    <div className="px-3 py-2 text-xs text-gray-400">No employees found</div>
-                  ) : (
-                    getFilteredSuggestions(activePage.members || []).map(emp => (
-                      <button
-                        key={emp.id || emp.name}
-                        type="button"
-                        onMouseDown={e => e.preventDefault()}
-                        onClick={() => {
-                          const newMembers = [...(activePage.members || []), emp.name];
-                          handleUpdateMembers(newMembers);
-                          setMemberSearch('');
-                          setShowSuggestions(false);
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-teal-50 dark:hover:bg-teal-900/30 flex items-center gap-2"
-                      >
-                        <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-800 flex items-center justify-center text-xs font-bold text-teal-700 dark:text-teal-300">
-                          {emp.name[0]}
-                        </div>
-                        <span>{emp.name}</span>
-                        {emp.role && <span className="text-xs text-gray-400 ml-auto">{emp.role}</span>}
-                      </button>
-                    ))
-                  )}
+            {/* @ mention to add — owner only */}
+            {isOwner && (
+              <div className="relative mb-3">
+                <div className="flex items-center border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700">
+                  <AtSign className="w-4 h-4 text-gray-400 ml-2" />
+                  <input
+                    ref={searchRef}
+                    type="text"
+                    value={memberSearch}
+                    onChange={e => { setMemberSearch(e.target.value); setShowSuggestions(true); }}
+                    onFocus={() => setShowSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                    placeholder="Type @ to add member..."
+                    className="flex-1 p-2 bg-transparent text-gray-900 dark:text-white outline-none text-sm"
+                  />
                 </div>
-              )}
-            </div>
+                {showSuggestions && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-40 overflow-y-auto z-10">
+                    {getFilteredSuggestions(activePage.members || []).length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-gray-400">No employees found</div>
+                    ) : (
+                      getFilteredSuggestions(activePage.members || []).map(emp => (
+                        <button
+                          key={emp.id || emp.name}
+                          type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => {
+                            const newMembers = [...(activePage.members || []), emp.name];
+                            handleUpdateMembers(newMembers);
+                            setMemberSearch('');
+                            setShowSuggestions(false);
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-teal-50 dark:hover:bg-teal-900/30 flex items-center gap-2"
+                        >
+                          <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-800 flex items-center justify-center text-xs font-bold text-teal-700 dark:text-teal-300">
+                            {emp.name[0]}
+                          </div>
+                          <span>{emp.name}</span>
+                          {emp.role && <span className="text-xs text-gray-400 ml-auto">{emp.role}</span>}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {/* Current members list */}
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {(activePage.members || []).map(memberName => {
                 const isCreator = activePage.createdBy === memberName;
                 return (
                   <div key={memberName} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <span className="text-sm text-gray-700 dark:text-gray-300">
-                      {memberName} {isCreator && <span className="text-xs text-teal-500">(owner)</span>}
-                    </span>
-                    {!isCreator && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center text-teal-700 dark:text-teal-300 text-xs font-bold">
+                        {memberName[0]?.toUpperCase()}
+                      </div>
+                      <span className="text-sm text-gray-700 dark:text-gray-300">
+                        {memberName} {isCreator && <span className="text-xs text-teal-500">(owner)</span>}
+                      </span>
+                    </div>
+                    {isOwner && !isCreator && (
                       <button
                         onClick={() => {
                           const newMembers = (activePage.members || []).filter(m => m !== memberName);

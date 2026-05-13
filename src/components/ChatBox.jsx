@@ -84,7 +84,7 @@ export default function ChatBox() {
 
     try {
       const history = [...messages, userMsg].slice(-6);
-      const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const API = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3001`;
 
       const response = await fetch(`${API}/api/chat/eb`, {
         method: 'POST',
@@ -135,7 +135,7 @@ export default function ChatBox() {
         }
       }
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I couldn\'t connect to the AI service. Please try again later.' }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I couldn\'t connect to the AI service. Please make sure Ollama is running and try again.' }]);
     } finally {
       setLoading(false);
     }

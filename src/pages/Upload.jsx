@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useOutletContext, Link, useLocation } from 'react-router-dom';
 import Header from '../components/Header';
 import AIAnalysisPanel from '../components/AIAnalysisPanel';
-import { analyzeReusability, analyzeFileWithAI, submitAsset, submitAssetWithFile, updateAssetStatus, deleteAsset, fetchMetadata, findSimilarAssets, extractFileText } from '../services/api';
+import { analyzeReusability, submitAsset, submitAssetWithFile, updateAssetStatus, deleteAsset, fetchMetadata, findSimilarAssets } from '../services/api';
 import {
   Upload as UploadIcon, Code2, FileText,
   X, Plus, CheckCircle2, XCircle, AlertCircle, ArrowLeft, ArrowRight,
@@ -63,8 +63,6 @@ export default function UploadPage() {
   const [categories, setCategories] = useState([]);
   const [similarAssets, setSimilarAssets] = useState([]);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
-  const [extractingFile, setExtractingFile] = useState(false);
-  const extractionPromiseRef = useRef(null);
 
   const codeLanguages = ['JavaScript', 'TypeScript', 'Python', 'Java', 'Go', 'Rust', 'C', 'C++', 'C#', 'Ruby', 'PHP', 'Kotlin', 'Swift', 'Dart', 'Scala', 'Perl', 'R', 'MATLAB', 'Lua', 'Haskell', 'Elixir', 'Shell/Bash', 'PowerShell', 'SQL', 'GraphQL', 'HTML/CSS', 'SASS/SCSS', 'React', 'Node.js', 'Angular', 'Vue.js', 'Next.js', 'Svelte', 'Spring Boot', 'Django', 'Flask', 'Express.js', 'FastAPI', '.NET', 'Ruby on Rails', 'Laravel', 'Terraform', 'Docker', 'Kubernetes', 'YAML', 'JSON', 'XML', 'Markdown', 'Other'];
   const codeCategories = ['Authentication', 'API Utils', 'Database', 'Security', 'DevOps', 'Testing', 'Frontend', 'Backend', 'Middleware', 'Data Processing', 'Logging', 'Caching', 'Messaging', 'File Handling', 'Other'];
@@ -94,39 +92,36 @@ export default function UploadPage() {
 
   const removeTag = (tag) => setTags(tags.filter(t => t !== tag));
 
-  const BINARY_EXTENSIONS = /\.(pdf|docx|xlsx|pptx|png|jpg|jpeg|tiff|bmp|gif)$/i;
-
-  const readFileContent = (file) => {
-    setOriginalFileName(file.name);
-    if (BINARY_EXTENSIONS.test(file.name)) {
-      // Binary files: extract text server-side (best-effort for preview)
-      setExtractingFile(true);
-      const promise = extractFileText(file)
-        .then(text => { setCodeContent(text); return text; })
-        .catch(() => { setCodeContent(''); return ''; })
-        .finally(() => setExtractingFile(false));
-      extractionPromiseRef.current = promise;
-    } else {
-      // Text files: read directly in browser
-      extractionPromiseRef.current = null;
-      const reader = new FileReader();
-      reader.onload = (ev) => setCodeContent(ev.target.result);
-      reader.readAsText(file);
-    }
-  };
-
   const handleDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
     const dropped = Array.from(e.dataTransfer.files);
     setFiles(prev => [...prev, ...dropped]);
-    if (dropped.length > 0) readFileContent(dropped[0]);
+    // Read first file content into codeContent
+    if (dropped.length > 0) {
+      const file = dropped[0];
+      setOriginalFileName(file.name);
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setCodeContent(ev.target.result);
+      };
+      reader.readAsText(file);
+    }
   };
 
   const handleFileSelect = (e) => {
     const selected = Array.from(e.target.files);
     setFiles(prev => [...prev, ...selected]);
-    if (selected.length > 0) readFileContent(selected[0]);
+    // Read first file content into codeContent
+    if (selected.length > 0) {
+      const file = selected[0];
+      setOriginalFileName(file.name);
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setCodeContent(ev.target.result);
+      };
+      reader.readAsText(file);
+    }
   };
 
   const removeFile = (idx) => {
@@ -174,25 +169,12 @@ export default function UploadPage() {
     setAiLoading(true);
     setAiError(null);
     try {
-      let result;
-      // For binary files: send file to server for extraction + analysis in one step
-      if (files.length > 0 && BINARY_EXTENSIONS.test(files[0].name)) {
-        const response = await analyzeFileWithAI(files[0], {
-          description: formData.description,
-          type: selectedType,
-          language: formData.language,
-        });
-        result = response.analysis;
-        // Store extracted text for later submission
-        if (response.extractedText) setCodeContent(response.extractedText);
-      } else {
-        result = await analyzeReusability({
-          code: codeContent || formData.description,
-          description: formData.description,
-          type: selectedType,
-          language: formData.language,
-        });
-      }
+      const result = await analyzeReusability({
+        code: codeContent || formData.description,
+        description: formData.description,
+        type: selectedType,
+        language: formData.language,
+      });
       setAiAnalysis(result);
     } catch (err) {
       setAiError(err.message || 'Failed to connect to AI service');
@@ -247,8 +229,8 @@ export default function UploadPage() {
         aiAnalysis: aiAnalysis || null,
       };
 
-      // Use server-side file upload for binary files (PDFs, Office, images) that need extraction
-      const hasBinaryFile = files.length > 0 && BINARY_EXTENSIONS.test(files[0].name);
+      // Use server-side file upload for binary files (PDFs etc.) that need extraction
+      const hasBinaryFile = files.length > 0 && files[0].name.match(/\.(pdf)$/i);
       if (hasBinaryFile) {
         await submitAssetWithFile(files[0], metadata);
       } else {
@@ -574,9 +556,6 @@ export default function UploadPage() {
                       <div>
                         <span className="text-sm font-medium text-gray-700 dark:text-slate-300">{file.name}</span>
                         <span className="text-xs text-gray-400 dark:text-slate-500 ml-2">{(file.size / 1024).toFixed(1)} KB</span>
-                        {extractingFile && i === 0 && (
-                          <span className="text-xs text-primary-600 dark:text-primary-400 ml-2 animate-pulse">Extracting text...</span>
-                        )}
                       </div>
                     </div>
                     <button type="button" onClick={() => removeFile(i)}
