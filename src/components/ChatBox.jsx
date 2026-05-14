@@ -135,7 +135,7 @@ export default function ChatBox() {
         }
       }
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I couldn\'t connect to the AI service. Please make sure Ollama is running and try again.' }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I couldn\'t connect to the AI service. Please try again later.' }]);
     } finally {
       setLoading(false);
     }

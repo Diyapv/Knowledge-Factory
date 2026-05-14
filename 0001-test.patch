@@ -1,0 +1,359 @@
+From 3e20f4cdb5891205d9b0b9543c10826f0695c91d Mon Sep 17 00:00:00 2001
+From: P Varghese <Diya.PVarghese@elektrobit.com>
+Date: Mon, 11 May 2026 15:47:33 +0530
+Subject: [PATCH] test
+
+---
+ server/index.js                    | 29 +++++++------
+ server/services/ai.js              | 67 +++++++++++++++--------------
+ server/services/qdrant.js          | 69 +++++++++++++-----------------
+ src/components/AIAnalysisPanel.jsx |  4 +-
+ src/components/ChatBox.jsx         |  2 +-
+ src/pages/Browse.jsx               |  2 +-
+ src/pages/Dashboard.jsx            |  2 +-
+ 7 files changed, 87 insertions(+), 88 deletions(-)
+
+diff --git a/server/index.js b/server/index.js
+index 7e1ed78..75d8821 100644
+--- a/server/index.js
++++ b/server/index.js
+@@ -64,19 +64,21 @@ let infohubToken = process.env.INFOHUB_TOKEN || '';
+ 
+ // ── Health ──────────────────────────────────────────────
+ app.get('/api/health', (req, res) => {
+-  res.json({ status: 'ok', database: 'qdrant', ollamaUrl: 'http://localhost:11434' });
++  res.json({ status: 'ok', database: 'qdrant', aiProvider: 'VIO API' });
+ });
+ 
+ // ── AI Status ───────────────────────────────────────────
+ app.get('/api/ai/status', async (req, res) => {
+   try {
+-    const [ollamaRes, qdrantRes] = await Promise.all([
+-      fetch('http://localhost:11434/api/tags').then(r => r.json()),
++    const [vioRes, qdrantRes] = await Promise.all([
++      fetch('https://vio.automotive-wan.com:446/models', {
++        headers: { 'Authorization': 'Bearer R0f_Yvf6sqLio8YsqqLqQAAu4yyG8llroNKVylAT4yo' },
++      }).then(r => r.json()),
+       fetch('http://localhost:6333/healthz').then(r => r.text()),
+     ]);
+     res.json({
+       connected: true,
+-      models: ollamaRes.models,
++      models: vioRes.data || [],
+       qdrant: qdrantRes.includes('passed') ? 'connected' : 'error',
+     });
+   } catch {
+@@ -585,8 +587,8 @@ app.post('/api/chat/eb', async (req, res) => {
+       // Send sources first
+       res.write(`data: ${JSON.stringify({ type: 'sources', kb: !!kbContext, infohub: !!infohubContext })}\n\n`);
+ 
+-      const ollamaStream = await ebChatStream(query, history || [], fullContext);
+-      const reader = ollamaStream.getReader();
++      const vioStream = await ebChatStream(query, history || [], fullContext);
++      const reader = vioStream.getReader();
+       const decoder = new TextDecoder();
+       let fullReply = '';
+ 
+@@ -595,13 +597,16 @@ app.post('/api/chat/eb', async (req, res) => {
+           const { done, value } = await reader.read();
+           if (done) break;
+           const chunk = decoder.decode(value, { stream: true });
+-          // Ollama streams NDJSON — each line is a JSON object
++          // OpenAI-compatible SSE: each line is "data: {JSON}" or "data: [DONE]"
+           for (const line of chunk.split('\n').filter(l => l.trim())) {
++            const stripped = line.replace(/^data:\s*/, '');
++            if (stripped === '[DONE]') break;
+             try {
+-              const json = JSON.parse(line);
+-              if (json.message?.content) {
+-                fullReply += json.message.content;
+-                res.write(`data: ${JSON.stringify({ type: 'token', content: json.message.content })}\n\n`);
++              const json = JSON.parse(stripped);
++              const token = json.choices?.[0]?.delta?.content;
++              if (token) {
++                fullReply += token;
++                res.write(`data: ${JSON.stringify({ type: 'token', content: token })}\n\n`);
+               }
+             } catch {}
+           }
+@@ -1385,7 +1390,7 @@ async function start() {
+   app.listen(PORT, '0.0.0.0', () => {
+     console.log(`Knowledge Factory API running on http://0.0.0.0:${PORT}`);
+     console.log('Qdrant: http://localhost:6333');
+-    console.log('Ollama: http://localhost:11434');
++    console.log('AI: VIO API (vio.automotive-wan.com:446)');
+   });
+ }
+ 
+diff --git a/server/services/ai.js b/server/services/ai.js
+index d1adb3d..da1d1c7 100644
+--- a/server/services/ai.js
++++ b/server/services/ai.js
+@@ -1,64 +1,69 @@
+-const OLLAMA_URL = 'http://localhost:11434';
+-const MODEL = 'llama3.1:8b';
++// Allow self-signed certificates for VIO internal API
++process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+ 
+-// ── Core Ollama call (raw generate) ────────────────────
++const VIO_BASE_URL = 'https://vio.automotive-wan.com:446';
++const VIO_API_KEY = 'R0f_Yvf6sqLio8YsqqLqQAAu4yyG8llroNKVylAT4yo';
++const MODEL = 'VIO:Mistral Large 2';
++
++// ── Core VIO API call (chat completions) ───────────────
+ async function callOllama(prompt, options = {}) {
+-  const response = await fetch(`${OLLAMA_URL}/api/generate`, {
++  const response = await fetch(`${VIO_BASE_URL}/chat/completions`, {
+     method: 'POST',
+-    headers: { 'Content-Type': 'application/json' },
++    headers: {
++      'Content-Type': 'application/json',
++      'Authorization': `Bearer ${VIO_API_KEY}`,
++    },
+     body: JSON.stringify({
+       model: MODEL,
+-      prompt,
++      messages: [{ role: 'user', content: prompt }],
++      temperature: options.temperature || 0.3,
++      max_tokens: options.maxTokens || 512,
+       stream: false,
+-      options: {
+-        temperature: options.temperature || 0.3,
+-        num_predict: options.maxTokens || 512,
+-      },
+     }),
+   });
+-  if (!response.ok) throw new Error(`Ollama error: ${response.status}`);
++  if (!response.ok) throw new Error(`VIO API error: ${response.status}`);
+   const data = await response.json();
+-  return data.response;
++  return data.choices[0].message.content;
+ }
+ 
+-// ── Ollama chat API (role-based, better for conversations) ──
++// ── VIO chat API (role-based, for conversations) ──
+ async function callOllamaChat(messages, options = {}) {
+-  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
++  const response = await fetch(`${VIO_BASE_URL}/chat/completions`, {
+     method: 'POST',
+-    headers: { 'Content-Type': 'application/json' },
++    headers: {
++      'Content-Type': 'application/json',
++      'Authorization': `Bearer ${VIO_API_KEY}`,
++    },
+     body: JSON.stringify({
+       model: MODEL,
+       messages,
++      temperature: options.temperature || 0.3,
++      max_tokens: options.maxTokens || 512,
+       stream: false,
+-      options: {
+-        temperature: options.temperature || 0.3,
+-        num_predict: options.maxTokens || 512,
+-        num_ctx: options.numCtx || 4096,
+-      },
+     }),
+   });
+-  if (!response.ok) throw new Error(`Ollama chat error: ${response.status}`);
++  if (!response.ok) throw new Error(`VIO API chat error: ${response.status}`);
+   const data = await response.json();
+-  return data.message?.content || '';
++  return data.choices[0]?.message?.content || '';
+ }
+ 
+-// ── Streaming Ollama chat (returns readable stream) ──
++// ── Streaming VIO chat (returns readable stream) ──
+ async function callOllamaChatStream(messages, options = {}) {
+-  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
++  const response = await fetch(`${VIO_BASE_URL}/chat/completions`, {
+     method: 'POST',
+-    headers: { 'Content-Type': 'application/json' },
++    headers: {
++      'Content-Type': 'application/json',
++      'Authorization': `Bearer ${VIO_API_KEY}`,
++    },
+     body: JSON.stringify({
+       model: MODEL,
+       messages,
++      temperature: options.temperature || 0.3,
++      max_tokens: options.maxTokens || 512,
+       stream: true,
+-      options: {
+-        temperature: options.temperature || 0.3,
+-        num_predict: options.maxTokens || 512,
+-        num_ctx: options.numCtx || 4096,
+-      },
+     }),
+   });
+-  if (!response.ok) throw new Error(`Ollama chat stream error: ${response.status}`);
++  if (!response.ok) throw new Error(`VIO API chat stream error: ${response.status}`);
+   return response.body;
+ }
+ 
+diff --git a/server/services/qdrant.js b/server/services/qdrant.js
+index 8a42c04..f0c2903 100644
+--- a/server/services/qdrant.js
++++ b/server/services/qdrant.js
+@@ -1,7 +1,8 @@
+ const { QdrantClient } = require('@qdrant/js-client-rest');
+ 
+-const OLLAMA_EMBED_URL = 'http://localhost:11434/api/embed';
+-const EMBED_MODEL = 'nomic-embed-text';
++const VIO_EMBED_URL = 'https://vio.automotive-wan.com:446/embeddings';
++const VIO_API_KEY = 'R0f_Yvf6sqLio8YsqqLqQAAu4yyG8llroNKVylAT4yo';
++const EMBED_MODEL = 'text-embedding-ada-002';
+ const COLLECTION = 'assets';
+ const ACTIVITY_COLLECTION = 'activity_log';
+ const COMMENTS_COLLECTION = 'comments';
+@@ -15,46 +16,31 @@ const RECOGNITION_COLLECTION = 'recognitions';
+ const JOBS_COLLECTION = 'internal_jobs';
+ const EMPLOYEES_COLLECTION = 'employees';
+ const PROFILES_COLLECTION = 'user_profiles';
+-const VECTOR_SIZE = 768;
++const VECTOR_SIZE = 1024;
+ 
+ const client = new QdrantClient({ url: 'http://localhost:6333', checkCompatibility: false });
+ 
+ async function ensureCollection() {
+-  try {
+-    await client.getCollection(COLLECTION);
+-  } catch {
+-    await client.createCollection(COLLECTION, {
+-      vectors: { size: VECTOR_SIZE, distance: 'Cosine' },
+-    });
+-    console.log(`Created Qdrant collection: ${COLLECTION}`);
+-  }
+-  // Activity log collection (dummy vector, we only use payload)
+-  try {
+-    await client.getCollection(ACTIVITY_COLLECTION);
+-  } catch {
+-    await client.createCollection(ACTIVITY_COLLECTION, {
+-      vectors: { size: 4, distance: 'Cosine' },
+-    });
+-    console.log(`Created Qdrant collection: ${ACTIVITY_COLLECTION}`);
+-  }
+-  // Comments collection (dummy vector, we only use payload)
+-  try {
+-    await client.getCollection(COMMENTS_COLLECTION);
+-  } catch {
+-    await client.createCollection(COMMENTS_COLLECTION, {
+-      vectors: { size: 4, distance: 'Cosine' },
+-    });
+-    console.log(`Created Qdrant collection: ${COMMENTS_COLLECTION}`);
+-  }
+-  // Knowledge base articles collection (full vector for semantic search)
+-  try {
+-    await client.getCollection(KB_COLLECTION);
+-  } catch {
+-    await client.createCollection(KB_COLLECTION, {
+-      vectors: { size: VECTOR_SIZE, distance: 'Cosine' },
+-    });
+-    console.log(`Created Qdrant collection: ${KB_COLLECTION}`);
++  // Helper: ensure a vector collection has the right size, recreate if mismatched
++  async function ensureVectorCollection(name, size) {
++    try {
++      const info = await client.getCollection(name);
++      const currentSize = info.config?.params?.vectors?.size;
++      if (currentSize && currentSize !== size) {
++        console.log(`Qdrant collection "${name}" has vector size ${currentSize}, expected ${size}. Recreating...`);
++        await client.deleteCollection(name);
++        await client.createCollection(name, { vectors: { size, distance: 'Cosine' } });
++        console.log(`Recreated Qdrant collection: ${name} (vector size ${size})`);
++      }
++    } catch {
++      await client.createCollection(name, { vectors: { size, distance: 'Cosine' } });
++      console.log(`Created Qdrant collection: ${name}`);
++    }
+   }
++
++  // Collections using full embeddings (must match VECTOR_SIZE)
++  await ensureVectorCollection(COLLECTION, VECTOR_SIZE);
++  await ensureVectorCollection(KB_COLLECTION, VECTOR_SIZE);
+   // Personal notes collection (dummy vector, payload-only)
+   try {
+     await client.getCollection(NOTES_COLLECTION);
+@@ -139,14 +125,17 @@ async function ensureCollection() {
+ }
+ 
+ async function getEmbedding(text) {
+-  const res = await fetch(OLLAMA_EMBED_URL, {
++  const res = await fetch(VIO_EMBED_URL, {
+     method: 'POST',
+-    headers: { 'Content-Type': 'application/json' },
++    headers: {
++      'Content-Type': 'application/json',
++      'Authorization': `Bearer ${VIO_API_KEY}`,
++    },
+     body: JSON.stringify({ model: EMBED_MODEL, input: text }),
+   });
+   if (!res.ok) throw new Error(`Embedding failed: ${res.status}`);
+   const data = await res.json();
+-  return data.embeddings[0];
++  return data.data[0].embedding;
+ }
+ 
+ function buildEmbedText(asset) {
+diff --git a/src/components/AIAnalysisPanel.jsx b/src/components/AIAnalysisPanel.jsx
+index 0b9bd9b..6d6dbab 100644
+--- a/src/components/AIAnalysisPanel.jsx
++++ b/src/components/AIAnalysisPanel.jsx
+@@ -11,7 +11,7 @@ export default function AIAnalysisPanel({ analysis, loading, error }) {
+           </div>
+           <div>
+             <h3 className="font-semibold text-gray-900 dark:text-white">AI Analysis in Progress</h3>
+-            <p className="text-sm text-gray-500 dark:text-slate-400">Evaluating reusability with Ollama...</p>
++            <p className="text-sm text-gray-500 dark:text-slate-400">Evaluating reusability with VIO AI...</p>
+           </div>
+         </div>
+         <div className="space-y-2">
+@@ -49,7 +49,7 @@ export default function AIAnalysisPanel({ analysis, loading, error }) {
+           </div>
+           <div>
+             <h3 className="font-semibold text-gray-900 dark:text-white">AI Reusability Assessment</h3>
+-            <p className="text-xs text-gray-500 dark:text-slate-400">Powered by Ollama (llama3.2)</p>
++            <p className="text-xs text-gray-500 dark:text-slate-400">Powered by VIO (Mistral Large 2)</p>
+           </div>
+         </div>
+         <ScoreRing score={analysis.score} size={52} />
+diff --git a/src/components/ChatBox.jsx b/src/components/ChatBox.jsx
+index 50d0f05..4d847ff 100644
+--- a/src/components/ChatBox.jsx
++++ b/src/components/ChatBox.jsx
+@@ -135,7 +135,7 @@ export default function ChatBox() {
+         }
+       }
+     } catch {
+-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I couldn\'t connect to the AI service. Please make sure Ollama is running and try again.' }]);
++      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I couldn\'t connect to the AI service. Please try again later.' }]);
+     } finally {
+       setLoading(false);
+     }
+diff --git a/src/pages/Browse.jsx b/src/pages/Browse.jsx
+index 4c9fb1e..96e51c5 100644
+--- a/src/pages/Browse.jsx
++++ b/src/pages/Browse.jsx
+@@ -136,7 +136,7 @@ export default function Browse() {
+               </div>
+               <div>
+                 <p className="text-sm font-medium text-gray-900 dark:text-white">AI Search Results for: &quot;{aiQuery}&quot;</p>
+-                <p className="text-xs text-gray-500 dark:text-slate-400">Ranked by semantic relevance using Ollama</p>
++                <p className="text-xs text-gray-500 dark:text-slate-400">Ranked by semantic relevance using VIO AI</p>
+               </div>
+             </div>
+             <button onClick={clearAISearch} className="text-xs text-primary-600 dark:text-primary-400 font-medium hover:text-primary-700">
+diff --git a/src/pages/Dashboard.jsx b/src/pages/Dashboard.jsx
+index afdd9a3..54791cc 100644
+--- a/src/pages/Dashboard.jsx
++++ b/src/pages/Dashboard.jsx
+@@ -108,7 +108,7 @@ export default function Dashboard() {
+           <Brain className={`w-5 h-5 ${aiStatus?.connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'}`} />
+           <div className="flex-1">
+             <p className={`text-sm font-medium ${aiStatus?.connected ? 'text-emerald-900 dark:text-emerald-300' : 'text-gray-600 dark:text-slate-400'}`}>
+-              AI Engine: {aiStatus?.connected ? 'Connected (Ollama)' : 'Checking...'}
++              AI Engine: {aiStatus?.connected ? 'Connected (VIO AI)' : 'Checking...'}
+             </p>
+             {aiStatus?.models?.length > 0 && (
+               <p className="text-xs text-emerald-600 dark:text-emerald-500">Model: {aiStatus.models[0].name}</p>
+-- 
+2.54.0.windows.1
+

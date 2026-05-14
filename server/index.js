@@ -4,7 +4,8 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { analyzeReusability, aiSuggestImprovements, detectDuplicate, generateTags, explainCode, ebChat, ebChatStream, checkMISRACompliance } = require('./services/ai');
+const crypto = require('crypto');
+const { analyzeReusability, aiSuggestImprovements, detectDuplicate, generateTags, explainCode, ebChat, ebChatStream, checkMISRACompliance, cleanExtractedText } = require('./services/ai');
 const {
   ensureCollection, upsertAsset, searchAssets,
   getAllAssets, getAssetById, deleteAsset, updateAsset, getStats,
@@ -47,6 +48,32 @@ const infohub = require('./services/infohub');
 const { sendMentionNotification } = require('./services/mailer');
 const { extractText, isSupportedFile, MAX_FILE_SIZE } = require('./services/fileParser');
 
+// ── Unique ID generator (race-condition safe) ───────────
+let _idCounter = 0;
+function generateUniqueId() {
+  const ts = Date.now().toString(36);
+  const rand = crypto.randomBytes(4).toString('hex');
+  _idCounter = (_idCounter + 1) % 1000;
+  return `${ts}-${rand}-${_idCounter}`;
+}
+
+// ── Upload lock to prevent concurrent upsert races ──────
+const _uploadLocks = new Map();
+async function withUploadLock(key, fn) {
+  while (_uploadLocks.has(key)) {
+    await _uploadLocks.get(key);
+  }
+  let resolve;
+  const promise = new Promise(r => { resolve = r; });
+  _uploadLocks.set(key, promise);
+  try {
+    return await fn();
+  } finally {
+    _uploadLocks.delete(key);
+    resolve();
+  }
+}
+
 // Ensure uploads directory exists
 const UPLOADS_DIR = path.join(__dirname, '..', 'snapshots', 'tmp', 'upload');
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -83,19 +110,21 @@ let infohubToken = process.env.INFOHUB_TOKEN || '';
 
 // ── Health ──────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', database: 'qdrant', ollamaUrl: 'http://localhost:11434' });
+  res.json({ status: 'ok', database: 'qdrant', aiProvider: 'VIO API' });
 });
 
 // ── AI Status ───────────────────────────────────────────
 app.get('/api/ai/status', async (req, res) => {
   try {
-    const [ollamaRes, qdrantRes] = await Promise.all([
-      fetch('http://localhost:11434/api/tags').then(r => r.json()),
+    const [vioRes, qdrantRes] = await Promise.all([
+      fetch('https://vio.automotive-wan.com:446/models', {
+        headers: { 'Authorization': 'Bearer R0f_Yvf6sqLio8YsqqLqQAAu4yyG8llroNKVylAT4yo' },
+      }).then(r => r.json()),
       fetch('http://localhost:6333/healthz').then(r => r.text()),
     ]);
     res.json({
       connected: true,
-      models: ollamaRes.models,
+      models: vioRes.data || [],
       qdrant: qdrantRes.includes('passed') ? 'connected' : 'error',
     });
   } catch {
@@ -115,6 +144,32 @@ app.post('/api/ai/analyze', async (req, res) => {
   } catch (err) {
     console.error('Analysis error:', err.message);
     res.status(500).json({ error: 'AI analysis failed', details: err.message });
+  }
+});
+
+// ── AI Analyze with file upload (extract text + analyze in one step) ──
+app.post('/api/ai/analyze-file', upload.single('file'), async (req, res) => {
+  try {
+    const { description, type, language } = req.body;
+    let code = '';
+    if (req.file) {
+      const fileBuffer = fs.readFileSync(req.file.path);
+      code = await extractText(fileBuffer, req.file.originalname);
+      // AI-powered cleanup for garbled OCR text (scanned PDFs, images)
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      if (['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif'].includes(ext)) {
+        code = await cleanExtractedText(code);
+      }
+      fs.unlink(req.file.path, () => {});
+    }
+    if (!code && !description) {
+      return res.status(400).json({ error: 'File content or description is required' });
+    }
+    const result = await analyzeReusability({ code, description, type, language });
+    res.json({ analysis: result, extractedText: code });
+  } catch (err) {
+    console.error('File analysis error:', err.message);
+    res.status(500).json({ error: 'AI file analysis failed', details: err.message });
   }
 });
 
@@ -200,7 +255,7 @@ app.post('/api/ai/misra', async (req, res) => {
 // ── Assets CRUD ─────────────────────────────────────────
 app.post('/api/assets', async (req, res) => {
   try {
-    const id = Date.now().toString();
+    const id = generateUniqueId();
     const asset = { id, ...req.body, createdAt: new Date().toISOString() };
     await upsertAsset(asset);
     await logActivity({ action: 'upload', assetId: id, assetName: asset.name, user: asset.submittedBy || asset.author, details: `Uploaded ${asset.type}: ${asset.name}` });
@@ -211,25 +266,52 @@ app.post('/api/assets', async (req, res) => {
   }
 });
 
+// ── Extract text from uploaded file (for AI analysis before submission) ──
+app.post('/api/extract-text', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    console.log(`[Extract Text] file=${req.file.originalname}, size=${req.file.size}`);
+    const fileBuffer = fs.readFileSync(req.file.path);
+    let text = await extractText(fileBuffer, req.file.originalname);
+    // AI-powered cleanup for garbled OCR text (scanned PDFs, images)
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    if (['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif'].includes(ext)) {
+      text = await cleanExtractedText(text);
+    }
+    console.log(`[Extract Text] extracted ${text.length} chars from ${req.file.originalname}`);
+    // Clean up temp file
+    fs.unlink(req.file.path, () => {});
+    res.json({ text });
+  } catch (err) {
+    console.error('Text extraction error:', err.message);
+    res.status(500).json({ error: 'Failed to extract text', details: err.message });
+  }
+});
+
 // ── File upload endpoint (extracts text server-side for PDFs and binary files) ──
 app.post('/api/assets/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const fileBuffer = fs.readFileSync(req.file.path);
-    const text = await extractText(fileBuffer, req.file.originalname);
-    const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {};
-    const id = Date.now().toString();
-    const asset = {
-      id,
-      ...metadata,
-      code: text,
-      originalFileName: req.file.originalname,
-      storedFileName: req.file.filename,
-      createdAt: new Date().toISOString(),
-    };
-    await upsertAsset(asset);
-    await logActivity({ action: 'upload', assetId: id, assetName: asset.name || req.file.originalname, user: asset.submittedBy || asset.author || '', details: `Uploaded ${asset.type || 'File'}: ${asset.name || req.file.originalname}` });
-    res.status(201).json(asset);
+
+    const result = await withUploadLock(req.file.originalname, async () => {
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const text = await extractText(fileBuffer, req.file.originalname);
+      const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {};
+      const id = generateUniqueId();
+      const asset = {
+        id,
+        ...metadata,
+        code: text,
+        originalFileName: req.file.originalname,
+        storedFileName: req.file.filename,
+        createdAt: new Date().toISOString(),
+      };
+      await upsertAsset(asset);
+      await logActivity({ action: 'upload', assetId: id, assetName: asset.name || req.file.originalname, user: asset.submittedBy || asset.author || '', details: `Uploaded ${asset.type || 'File'}: ${asset.name || req.file.originalname}` });
+      return asset;
+    });
+
+    res.status(201).json(result);
   } catch (err) {
     console.error('File upload error:', err.message);
     res.status(500).json({ error: 'Failed to upload file', details: err.message });
@@ -604,8 +686,8 @@ app.post('/api/chat/eb', async (req, res) => {
       // Send sources first
       res.write(`data: ${JSON.stringify({ type: 'sources', kb: !!kbContext, infohub: !!infohubContext })}\n\n`);
 
-      const ollamaStream = await ebChatStream(query, history || [], fullContext);
-      const reader = ollamaStream.getReader();
+      const vioStream = await ebChatStream(query, history || [], fullContext);
+      const reader = vioStream.getReader();
       const decoder = new TextDecoder();
       let fullReply = '';
 
@@ -614,13 +696,16 @@ app.post('/api/chat/eb', async (req, res) => {
           const { done, value } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
-          // Ollama streams NDJSON — each line is a JSON object
+          // OpenAI-compatible SSE: each line is "data: {JSON}" or "data: [DONE]"
           for (const line of chunk.split('\n').filter(l => l.trim())) {
+            const stripped = line.replace(/^data:\s*/, '');
+            if (stripped === '[DONE]') break;
             try {
-              const json = JSON.parse(line);
-              if (json.message?.content) {
-                fullReply += json.message.content;
-                res.write(`data: ${JSON.stringify({ type: 'token', content: json.message.content })}\n\n`);
+              const json = JSON.parse(stripped);
+              const token = json.choices?.[0]?.delta?.content;
+              if (token) {
+                fullReply += token;
+                res.write(`data: ${JSON.stringify({ type: 'token', content: token })}\n\n`);
               }
             } catch {}
           }
@@ -2093,7 +2178,7 @@ async function start() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Knowledge Factory API running on http://0.0.0.0:${PORT}`);
     console.log('Qdrant: http://localhost:6333');
-    console.log('Ollama: http://localhost:11434');
+    console.log('AI: VIO API (vio.automotive-wan.com:446)');
   });
 }
 

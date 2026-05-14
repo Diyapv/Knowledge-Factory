@@ -1,7 +1,8 @@
 const { QdrantClient } = require('@qdrant/js-client-rest');
 
-const OLLAMA_EMBED_URL = 'http://localhost:11434/api/embed';
-const EMBED_MODEL = 'nomic-embed-text';
+const VIO_EMBED_URL = 'https://vio.automotive-wan.com:446/embeddings';
+const VIO_API_KEY = 'R0f_Yvf6sqLio8YsqqLqQAAu4yyG8llroNKVylAT4yo';
+const EMBED_MODEL = 'text-embedding-ada-002';
 const COLLECTION = 'assets';
 const ACTIVITY_COLLECTION = 'activity_log';
 const COMMENTS_COLLECTION = 'comments';
@@ -31,46 +32,31 @@ const GALLERY_COLLECTION = 'photo_gallery';
 const SPRINTS_COLLECTION = 'sprint_planning';
 const TIMESHEETS_COLLECTION = 'timesheets';
 const LEAVE_REQUESTS_COLLECTION = 'leave_requests';
-const VECTOR_SIZE = 768;
+const VECTOR_SIZE = 1024;
 
 const client = new QdrantClient({ url: 'http://localhost:6333', checkCompatibility: false });
 
 async function ensureCollection() {
-  try {
-    await client.getCollection(COLLECTION);
-  } catch {
-    await client.createCollection(COLLECTION, {
-      vectors: { size: VECTOR_SIZE, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${COLLECTION}`);
+  // Helper: ensure a vector collection has the right size, recreate if mismatched
+  async function ensureVectorCollection(name, size) {
+    try {
+      const info = await client.getCollection(name);
+      const currentSize = info.config?.params?.vectors?.size;
+      if (currentSize && currentSize !== size) {
+        console.log(`Qdrant collection "${name}" has vector size ${currentSize}, expected ${size}. Recreating...`);
+        await client.deleteCollection(name);
+        await client.createCollection(name, { vectors: { size, distance: 'Cosine' } });
+        console.log(`Recreated Qdrant collection: ${name} (vector size ${size})`);
+      }
+    } catch {
+      await client.createCollection(name, { vectors: { size, distance: 'Cosine' } });
+      console.log(`Created Qdrant collection: ${name}`);
+    }
   }
-  // Activity log collection (dummy vector, we only use payload)
-  try {
-    await client.getCollection(ACTIVITY_COLLECTION);
-  } catch {
-    await client.createCollection(ACTIVITY_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${ACTIVITY_COLLECTION}`);
-  }
-  // Comments collection (dummy vector, we only use payload)
-  try {
-    await client.getCollection(COMMENTS_COLLECTION);
-  } catch {
-    await client.createCollection(COMMENTS_COLLECTION, {
-      vectors: { size: 4, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${COMMENTS_COLLECTION}`);
-  }
-  // Knowledge base articles collection (full vector for semantic search)
-  try {
-    await client.getCollection(KB_COLLECTION);
-  } catch {
-    await client.createCollection(KB_COLLECTION, {
-      vectors: { size: VECTOR_SIZE, distance: 'Cosine' },
-    });
-    console.log(`Created Qdrant collection: ${KB_COLLECTION}`);
-  }
+
+  // Collections using full embeddings (must match VECTOR_SIZE)
+  await ensureVectorCollection(COLLECTION, VECTOR_SIZE);
+  await ensureVectorCollection(KB_COLLECTION, VECTOR_SIZE);
   // Personal notes collection (dummy vector, payload-only)
   try {
     await client.getCollection(NOTES_COLLECTION);
@@ -314,14 +300,17 @@ async function ensureCollection() {
 }
 
 async function getEmbedding(text) {
-  const res = await fetch(OLLAMA_EMBED_URL, {
+  const res = await fetch(VIO_EMBED_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${VIO_API_KEY}`,
+    },
     body: JSON.stringify({ model: EMBED_MODEL, input: text }),
   });
   if (!res.ok) throw new Error(`Embedding failed: ${res.status}`);
   const data = await res.json();
-  return data.embeddings[0];
+  return data.data[0].embedding;
 }
 
 function buildEmbedText(asset) {
@@ -379,6 +368,7 @@ async function upsertAsset(asset) {
         ratings: asset.ratings || {},
         ratingCount: asset.ratingCount || 0,
         originalFileName: asset.originalFileName || '',
+        storedFileName: asset.storedFileName || '',
         rejectionComment: asset.rejectionComment || '',
         rejectedBy: asset.rejectedBy || '',
         reviewedBy: asset.reviewedBy || '',

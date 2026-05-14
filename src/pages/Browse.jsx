@@ -136,7 +136,7 @@ export default function Browse() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-white">AI Search Results for: &quot;{aiQuery}&quot;</p>
-                <p className="text-xs text-gray-500 dark:text-slate-400">Ranked by semantic relevance using Ollama</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400">Ranked by semantic relevance using VIO AI</p>
               </div>
             </div>
             <button onClick={clearAISearch} className="text-xs text-primary-600 dark:text-primary-400 font-medium hover:text-primary-700">

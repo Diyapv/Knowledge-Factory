@@ -54,6 +54,18 @@ export async function submitAsset(asset) {
   return res.json();
 }
 
+export async function extractFileText(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_URL}/extract-text`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) throw new Error('Failed to extract text from file');
+  const data = await res.json();
+  return data.text || '';
+}
+
 export async function submitAssetWithFile(file, metadata) {
   const formData = new FormData();
   formData.append('file', file);
@@ -83,6 +95,20 @@ export async function analyzeReusability({ code, description, type, language }) 
     body: JSON.stringify({ code, description, type, language }),
   });
   if (!res.ok) throw new Error('Analysis failed');
+  return res.json();
+}
+
+export async function analyzeFileWithAI(file, { description, type, language }) {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (description) formData.append('description', description);
+  if (type) formData.append('type', type);
+  if (language) formData.append('language', language);
+  const res = await fetch(`${API_URL}/ai/analyze-file`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) throw new Error('File analysis failed');
   return res.json();
 }
 
